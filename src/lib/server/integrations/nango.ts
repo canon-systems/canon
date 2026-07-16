@@ -116,7 +116,7 @@ const NANGO_PROVIDER_CONFIG: Record<NangoProvider, NangoProviderConfig> = {
       'outlook',
     aliases: ['outlook', 'microsoft-outlook', 'microsoft_outlook', 'office365-mail', 'office365'],
     label: 'Outlook',
-    sourceType: 'email',
+    sourceType: 'calendar',
     supportsWebhooks: true,
     supportsIncrementalSync: true,
   },

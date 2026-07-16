@@ -290,6 +290,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       action?: string;
       proposal_id?: string;
+      proposal_ids?: unknown;
       role?: string;
       day_trigger?: number;
       title?: string;
@@ -434,6 +435,126 @@ export async function POST(request: NextRequest) {
       if (error || !proposal) return NextResponse.json({ error: 'Proposal not found or already resolved' }, { status: 404 });
       log.debug('proposal_updated', { userId: user.id, organizationId: organization.id, proposalId: proposal.id });
       return NextResponse.json({ proposal });
+    }
+
+    if (body.action === 'reject_proposals') {
+      const proposalIds = Array.from(new Set(stringArray(body.proposal_ids))).slice(0, 100);
+      if (proposalIds.length === 0) return NextResponse.json({ error: 'proposal_ids is required' }, { status: 400 });
+
+      const now = new Date().toISOString();
+      const { data: proposals, error } = await supabase
+        .from('milestone_proposals')
+        .update({ status: 'rejected', rejected_at: now, updated_at: now })
+        .eq('organization_id', organization.id)
+        .eq('status', 'draft')
+        .in('id', proposalIds)
+        .select();
+      if (error) throw error;
+      return NextResponse.json({ proposals: proposals ?? [], rejected: proposals?.length ?? 0 });
+    }
+
+    if (body.action === 'approve_proposals') {
+      const proposalIds = Array.from(new Set(stringArray(body.proposal_ids))).slice(0, 100);
+      if (proposalIds.length === 0) return NextResponse.json({ error: 'proposal_ids is required' }, { status: 400 });
+
+      const { data: proposals, error: proposalsError } = await supabase
+        .from('milestone_proposals')
+        .select('*')
+        .eq('organization_id', organization.id)
+        .eq('status', 'draft')
+        .in('id', proposalIds);
+      if (proposalsError) throw proposalsError;
+
+      const checks = await Promise.all((proposals ?? []).map(async (proposal) => {
+        const dayTrigger = proposal.suggested_day_trigger;
+        const [activeRole, targetRampDays, activeDayConflict, draftDayConflict, contentConflict] = await Promise.all([
+          isActiveRole(supabase, organization.id, proposal.role),
+          roleTargetRampDays(supabase, organization.id, proposal.role),
+          hasActiveMilestoneOnDay({
+            supabase,
+            organizationId: organization.id,
+            role: proposal.role,
+            dayTrigger,
+          }),
+          hasDraftProposalOnDay({
+            supabase,
+            organizationId: organization.id,
+            role: proposal.role,
+            dayTrigger,
+            excludeProposalId: proposal.id,
+          }),
+          hasMilestoneContentConflict({
+            supabase,
+            organizationId: organization.id,
+            role: proposal.role,
+            candidate: proposal,
+            excludeProposalId: proposal.id,
+          }),
+        ]);
+
+        const reason = !activeRole
+          ? 'Role is not active'
+          : !Number.isInteger(dayTrigger) || dayTrigger < 0 || dayTrigger > targetRampDays
+            ? `Day must be between 0 and ${targetRampDays}`
+            : activeDayConflict || draftDayConflict
+              ? `Day ${dayTrigger} already has a learning step`
+              : contentConflict
+                ? 'Overlaps with another learning step'
+                : null;
+        return { proposal, reason };
+      }));
+
+      const approvedCandidates = checks.filter((check) => !check.reason);
+      const now = new Date().toISOString();
+      const { data: milestones, error: milestoneError } = approvedCandidates.length > 0
+        ? await supabase
+            .from('ramp_milestones')
+            .insert(approvedCandidates.map(({ proposal }) => ({
+              organization_id: organization.id,
+              role: proposal.role,
+              day_trigger: proposal.suggested_day_trigger,
+              title: proposal.title,
+              description: proposal.capability_outcome,
+              knowledge_query: proposal.retrieval_brief,
+              capability_outcome: proposal.capability_outcome,
+              briefing_goal: proposal.briefing_goal,
+              real_work_trigger: proposal.real_work_trigger,
+              success_signals: proposal.success_signals,
+              retrieval_brief: proposal.retrieval_brief,
+              evidence_requirements: proposal.evidence_requirements,
+              source_evidence: proposal.source_evidence,
+              confidence: proposal.confidence,
+              status: 'active',
+              approved_from_proposal_id: proposal.id,
+              updated_at: now,
+            })))
+            .select()
+        : { data: [], error: null };
+      if (milestoneError) throw milestoneError;
+
+      const milestoneByProposal = new Map((milestones ?? []).map((milestone) => [milestone.approved_from_proposal_id, milestone]));
+      await Promise.all(approvedCandidates.map(async ({ proposal }) => {
+        const milestone = milestoneByProposal.get(proposal.id);
+        if (!milestone) return;
+        const { error } = await supabase
+          .from('milestone_proposals')
+          .update({
+            status: 'approved',
+            approved_milestone_id: milestone.id,
+            approved_at: now,
+            updated_at: now,
+          })
+          .eq('id', proposal.id)
+          .eq('organization_id', organization.id)
+          .eq('status', 'draft');
+        if (error) throw error;
+      }));
+
+      return NextResponse.json({
+        milestones: milestones ?? [],
+        approved: milestones?.length ?? 0,
+        skipped: checks.filter((check) => check.reason).map((check) => ({ id: check.proposal.id, reason: check.reason })),
+      }, { status: 201 });
     }
 
     if (body.action === 'reject_proposal') {
@@ -814,30 +935,35 @@ export async function DELETE(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { supabase, organization } = await requireWorkspaceAdmin(user);
 
-    const body = (await request.json().catch(() => ({}))) as { milestone_id?: string };
-    const milestoneId = stringField(body.milestone_id) || stringField(request.nextUrl.searchParams.get('id'));
-    if (!milestoneId) return NextResponse.json({ error: 'milestone_id is required' }, { status: 400 });
+    const body = (await request.json().catch(() => ({}))) as { milestone_id?: string; milestone_ids?: unknown };
+    const milestoneIds = Array.from(new Set([
+      stringField(body.milestone_id),
+      stringField(request.nextUrl.searchParams.get('id')),
+      ...stringArray(body.milestone_ids),
+    ].filter(Boolean))).slice(0, 100);
+    if (milestoneIds.length === 0) return NextResponse.json({ error: 'milestone_id is required' }, { status: 400 });
 
-    const { data: milestone, error } = await supabase
+    const { data: milestones, error } = await supabase
       .from('ramp_milestones')
       .update({ status: 'archived', updated_at: new Date().toISOString() })
-      .eq('id', milestoneId)
+      .in('id', milestoneIds)
       .eq('organization_id', organization.id)
       .eq('status', 'active')
-      .select('id, role, day_trigger')
-      .single();
+      .select('id, role, day_trigger');
 
-    if (error || !milestone) return NextResponse.json({ error: 'Milestone not found or already removed' }, { status: 404 });
+    if (error) throw error;
+    if ((milestones?.length ?? 0) !== milestoneIds.length) {
+      return NextResponse.json({ error: 'One or more learning steps were not found or already removed' }, { status: 404 });
+    }
 
     log.info('milestone_archived', {
       userId: user.id,
       organizationId: organization.id,
-      milestoneId: milestone.id,
-      role: milestone.role,
-      dayTrigger: milestone.day_trigger,
+      milestoneIds,
+      count: milestones?.length ?? 0,
     });
 
-    return NextResponse.json({ milestone });
+    return NextResponse.json({ milestone: milestones?.[0] ?? null, milestones: milestones ?? [], count: milestones?.length ?? 0 });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/milestones] DELETE failed', error);

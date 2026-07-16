@@ -2,8 +2,9 @@
 
 import { useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { X as IconX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { IntegrationSettings } from './sections/IntegrationSettings';
 import { OrganizationSettings } from './sections/OrganizationSettings';
 import { ProfileSettings } from './sections/ProfileSettings';
@@ -33,8 +34,17 @@ export function SettingsPageClient() {
     : isSettingsTab(tabParam)
       ? tabParam
       : 'profile';
+  const calendarStatus = searchParams.get('calendarStatus');
+  const eventCount = Number(searchParams.get('eventCount') ?? 0);
+  const connectedProviderLabel = providerLabel(searchParams.get('provider') || 'service');
   const initialIntegrationSuccess = successParam === 'true'
-    ? `Successfully connected to ${providerLabel(searchParams.get('provider') || 'service')}!`
+    ? calendarStatus === 'needs_attention'
+      ? `${connectedProviderLabel} is connected, but Canon could not refresh it yet. Canon will try again automatically.`
+      : calendarStatus === 'ready'
+        ? eventCount > 0
+          ? `${connectedProviderLabel} is connected. ${eventCount} upcoming ${eventCount === 1 ? 'event is' : 'events are'} ready.`
+          : `${connectedProviderLabel} is connected and up to date. No upcoming events were found.`
+        : `Successfully connected to ${connectedProviderLabel}!`
     : '';
   const initialIntegrationError = errorParam
     ? 'Something went wrong connecting your integration. Please try again.'
@@ -143,8 +153,8 @@ export function SettingsPageClient() {
     {
       id: 'outlook',
       provider: 'outlook' as const,
-      name: 'Outlook',
-      description: 'Connect Outlook messages so Canon can use customer and internal email context.',
+      name: 'Outlook Calendar',
+      description: 'Connect Outlook Calendar so Canon can prepare for upcoming meetings.',
       logoUrl: integrationLogoUrl('outlook'),
       connected: !!outlookConnection,
       workspace: outlookConnection ? `Connected ${formatDate(outlookConnection.created_at)}` : '',
@@ -188,14 +198,25 @@ export function SettingsPageClient() {
       </div>
 
       <Dialog open={disconnectModalOpen && connectionToDisconnect !== null} onOpenChange={(open) => !open && closeDisconnectModal()}>
-        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
-          <DialogHeader>
-            <DialogTitle>Disconnect {connectionToDisconnect ? providerLabel(connectionToDisconnect.provider) : 'Integration'}</DialogTitle>
-            <DialogDescription>
+        <DialogContent
+          className="max-w-md gap-0 overflow-hidden border-[var(--border-tertiary)] bg-[var(--bg-primary)] p-0 text-[var(--text-primary)]"
+          hideCloseButton
+        >
+          <DialogHeader className="gap-0 px-4 pb-4 pt-4">
+            <div className="flex items-start justify-between gap-3">
+              <DialogTitle className="leading-[1.25]">Disconnect {connectionToDisconnect ? providerLabel(connectionToDisconnect.provider) : 'integration'}?</DialogTitle>
+              <DialogClose
+                className="-mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors duration-[120ms] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)]/30"
+                aria-label="Close disconnect dialog"
+              >
+                <IconX size={13} />
+              </DialogClose>
+            </div>
+            <DialogDescription className="mt-2 leading-[1.45]">
               {connectionToDisconnect ? disconnectDescription(connectionToDisconnect.provider) : 'Canon will remove this integration.'}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className="border-t border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-4 py-3 sm:justify-start">
             <Button variant="secondary" onClick={closeDisconnectModal}>
               Cancel
             </Button>

@@ -3,53 +3,8 @@ import { getSession } from '@/lib/auth';
 import { canonicalProvider } from '@/lib/providers';
 import { requireWorkspace } from '@/lib/server/organization';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import {
-  hasNangoApiKey,
-  listNangoConnectionsForOrganization,
-  providerForNangoIntegration,
-  supportedNangoProviders,
-} from '@/lib/server/integrations/nango';
-import {
-  upsertWorkspaceConnection,
-  type WorkspaceProvider,
-} from '@/lib/server/integrations/workspaceConnections';
-
-async function reconcileNangoConnections(params: { userId: string; organizationId: string }) {
-  if (!hasNangoApiKey()) return;
-
-  try {
-    const supportedProviders = new Set(supportedNangoProviders());
-    const admin = createServiceRoleClient();
-    const connections = await listNangoConnectionsForOrganization({
-      organizationId: params.organizationId,
-    });
-    await Promise.all(connections.map(async (connection) => {
-      const provider = providerForNangoIntegration(connection.provider_config_key);
-      if (!supportedProviders.has(provider)) return;
-      const workspaceProvider = provider as WorkspaceProvider;
-
-      const hasAuthError = (connection.errors ?? []).some((error) => error.type === 'auth');
-      await upsertWorkspaceConnection(admin, {
-        organizationId: params.organizationId,
-        connectedByUserId: params.userId,
-        provider: workspaceProvider,
-        connectionId: connection.connection_id,
-        status: hasAuthError ? 'error' : 'active',
-        metadata: {
-          ...(connection.metadata ?? {}),
-          source: 'nango',
-          provider_config_key: connection.provider_config_key,
-          nango_provider: connection.provider,
-          nango_connection_id: connection.id,
-          organization_id: params.organizationId,
-          reconciled_at: new Date().toISOString(),
-        },
-      });
-    }));
-  } catch (error) {
-    console.warn('Failed to list Nango connections for reconciliation:', error);
-  }
-}
+import { supportedNangoProviders } from '@/lib/server/integrations/nango';
+import { reconcileNangoWorkspaceConnections } from '@/lib/server/integrations/nango-reconciliation';
 
 export async function GET() {
   try {
@@ -59,7 +14,15 @@ export async function GET() {
     }
 
     const { supabase, organization } = await requireWorkspace(user);
-    await reconcileNangoConnections({ userId: user.id, organizationId: organization.id });
+    try {
+      await reconcileNangoWorkspaceConnections({
+        supabase: createServiceRoleClient(),
+        organizationId: organization.id,
+        connectedByUserId: user.id,
+      });
+    } catch (error) {
+      console.warn('Failed to list Nango connections for reconciliation:', error);
+    }
 
     const supportedProviders = ['slack', ...supportedNangoProviders()];
     const { data: connections, error } = await supabase

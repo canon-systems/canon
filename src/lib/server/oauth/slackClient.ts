@@ -86,6 +86,7 @@ export function getSlackOAuthScopes(): string[] {
     'im:write',
     'im:history',
     'users:read',
+    'users:read.email',
   ];
 }
 

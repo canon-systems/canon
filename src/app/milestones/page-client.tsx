@@ -266,7 +266,8 @@ export function MilestonesClient() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingMilestone, setEditingMilestone] = useState<RampMilestone | null>(null);
   const [editForm, setEditForm] = useState<MilestoneForm>(emptyForm(''));
-  const [pendingDelete, setPendingDelete] = useState<RampMilestone | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<RampMilestone[]>([]);
+  const [selectedMilestoneIds, setSelectedMilestoneIds] = useState<Set<string>>(new Set());
   const [form, setForm] = useState<MilestoneForm>(emptyForm(''));
   const [submitting, setSubmitting] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -377,10 +378,15 @@ export function MilestonesClient() {
           evidence_requirements: editingMilestone.evidence_requirements,
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as { error?: string; milestone?: RampMilestone };
       if (!res.ok) throw new Error(data.error ?? 'Failed to update learning step.');
+      if (data.milestone) {
+        setMilestones((current) => current.map((milestone) => (
+          milestone.id === data.milestone?.id ? data.milestone : milestone
+        )));
+      }
       setEditingMilestone(null);
-      await load();
+      toast.success('Learning step updated');
     } catch (error) {
       setEditError(error instanceof Error ? error.message : 'Failed to update learning step.');
     } finally {
@@ -597,24 +603,21 @@ export function MilestonesClient() {
     if (targets.length === 0) return;
     setBulkAction('accept_all');
     try {
-      let approved = 0;
-      let skipped = 0;
-      for (const proposal of targets) {
-        const res = await fetch('/api/onboarding/milestones', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'approve_proposal', proposal_id: proposal.id }),
-        });
-        if (res.ok) {
-          approved += 1;
-        } else {
-          skipped += 1;
-        }
-      }
+      const res = await fetch('/api/onboarding/milestones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve_proposals', proposal_ids: targets.map((proposal) => proposal.id) }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; approved?: number; skipped?: unknown[] };
+      if (!res.ok) throw new Error(data.error ?? 'Failed to approve learning steps.');
       await load();
+      const approved = data.approved ?? 0;
+      const skipped = data.skipped?.length ?? 0;
       if (skipped > 0) {
         toast.info(`${approved} approved, ${skipped} need timing edits first.`);
       }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to approve learning steps.');
     } finally {
       setBulkAction(null);
     }
@@ -625,33 +628,38 @@ export function MilestonesClient() {
     if (targets.length === 0) return;
     setBulkAction('reject_all');
     try {
-      await Promise.all(targets.map((proposal) =>
-        fetch('/api/onboarding/milestones', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'reject_proposal', proposal_id: proposal.id }),
-        })
-      ));
+      const res = await fetch('/api/onboarding/milestones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject_proposals', proposal_ids: targets.map((proposal) => proposal.id) }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Failed to reject learning steps.');
       await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to reject learning steps.');
     } finally {
       setBulkAction(null);
     }
   }
 
   async function deleteMilestone() {
-    if (!pendingDelete) return;
-    setActionId(pendingDelete.id);
+    if (pendingDelete.length === 0) return;
+    const milestoneIds = pendingDelete.map((milestone) => milestone.id);
+    setActionId(milestoneIds.length === 1 ? milestoneIds[0] : 'bulk-delete');
     setDeleteError('');
     try {
       const res = await fetch('/api/onboarding/milestones', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ milestone_id: pendingDelete.id }),
+        body: JSON.stringify({ milestone_ids: milestoneIds }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? 'Failed to remove learning step.');
-      setPendingDelete(null);
-      await load();
+      setMilestones((current) => current.filter((milestone) => !milestoneIds.includes(milestone.id)));
+      setSelectedMilestoneIds((current) => new Set(Array.from(current).filter((id) => !milestoneIds.includes(id))));
+      setPendingDelete([]);
+      toast.success(milestoneIds.length === 1 ? 'Learning step removed' : `${milestoneIds.length} learning steps removed`);
     } catch (error) {
       setDeleteError(error instanceof Error ? error.message : 'Failed to remove learning step.');
     } finally {
@@ -705,12 +713,13 @@ export function MilestonesClient() {
                 key={profile.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => { setActiveRole(role); setForm(emptyForm(role)); }}
+                onClick={() => { setActiveRole(role); setForm(emptyForm(role)); setSelectedMilestoneIds(new Set()); }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     setActiveRole(role);
                     setForm(emptyForm(role));
+                    setSelectedMilestoneIds(new Set());
                   }
                 }}
                 className={cn(
@@ -898,9 +907,31 @@ export function MilestonesClient() {
 
               {activeMilestones.length > 0 && (
                 <div>
-                  {activeProposals.length > 0 && (
-                    <div className="type-kicker mb-3" style={{ color: 'var(--text-tertiary)' }}>Approved Plan</div>
-                  )}
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <div className="type-kicker" style={{ color: 'var(--text-tertiary)' }}>Approved Plan</div>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-2 type-caption text-[var(--text-secondary)]">
+                        <input
+                          type="checkbox"
+                          checked={activeMilestones.length > 0 && activeMilestones.every((milestone) => selectedMilestoneIds.has(milestone.id))}
+                          onChange={(event) => setSelectedMilestoneIds(event.target.checked
+                            ? new Set(activeMilestones.map((milestone) => milestone.id))
+                            : new Set())}
+                          className="h-4 w-4 accent-[var(--canon-purple)]"
+                        />
+                        {selectedMilestoneIds.size > 0 ? `${selectedMilestoneIds.size} selected` : 'Select all'}
+                      </label>
+                      {selectedMilestoneIds.size > 0 && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setPendingDelete(activeMilestones.filter((milestone) => selectedMilestoneIds.has(milestone.id)))}
+                        >
+                          <IconTrash size={13} /> Remove
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex flex-col gap-3">
                     {activeMilestones.map((m, index) => (
                       <MilestoneCard
@@ -910,10 +941,17 @@ export function MilestonesClient() {
                         previousTitle={index > 0 ? activeMilestones[index - 1]?.title ?? null : null}
                         targetRampDays={activeTargetDays}
                         timingConflict={duplicateActiveDays.has(m.day_trigger)}
+                        selected={selectedMilestoneIds.has(m.id)}
+                        onSelectedChange={(selected) => setSelectedMilestoneIds((current) => {
+                          const next = new Set(current);
+                          if (selected) next.add(m.id);
+                          else next.delete(m.id);
+                          return next;
+                        })}
                         onEdit={openEdit}
                         onDelete={(milestone) => {
                           setDeleteError('');
-                          setPendingDelete(milestone);
+                          setPendingDelete([milestone]);
                         }}
                         deleting={actionId === m.id}
                       />
@@ -1206,28 +1244,30 @@ export function MilestonesClient() {
       </Dialog>
 
       {/* Delete Confirm Dialog */}
-      <Dialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+      <Dialog open={pendingDelete.length > 0} onOpenChange={(open) => { if (!open) setPendingDelete([]); }}>
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle className="text-[var(--text-primary)]">Remove Readiness Milestone</DialogTitle>
             <DialogDescription>
-              Remove {pendingDelete?.title}? This archives it from future hire paths while preserving historical delivery and evidence records.
+              {pendingDelete.length === 1
+                ? `Remove ${pendingDelete[0]?.title}?`
+                : `Remove ${pendingDelete.length} learning steps?`} This archives them from future hire paths while preserving historical delivery and evidence records.
             </DialogDescription>
           </DialogHeader>
-          {pendingDelete && (
+          {pendingDelete.length === 1 && pendingDelete[0] && (
             <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2">
               <div className="type-kicker mb-1 text-[var(--text-tertiary)]">Approved Readiness Milestone</div>
-              <p className="type-body-strong text-[var(--text-primary)]">Day {pendingDelete.day_trigger} - {pendingDelete.title}</p>
-              <p className="type-caption mt-1 text-[var(--text-tertiary)]">{pendingDelete.role}</p>
+              <p className="type-body-strong text-[var(--text-primary)]">Day {pendingDelete[0].day_trigger} - {pendingDelete[0].title}</p>
+              <p className="type-caption mt-1 text-[var(--text-tertiary)]">{pendingDelete[0].role}</p>
             </div>
           )}
           {deleteError && <p className="type-body text-[var(--red-text)]">{deleteError}</p>}
           <DialogFooter>
-            <Button type="button" variant="secondary" onClick={() => setPendingDelete(null)} disabled={actionId === pendingDelete?.id}>
+            <Button type="button" variant="secondary" onClick={() => setPendingDelete([])} disabled={actionId === 'bulk-delete' || actionId === pendingDelete[0]?.id}>
               Cancel
             </Button>
-            <Button type="button" variant="destructive" onClick={deleteMilestone} disabled={actionId === pendingDelete?.id}>
-              {actionId === pendingDelete?.id ? 'Removing...' : 'Remove Learning Step'}
+            <Button type="button" variant="destructive" onClick={deleteMilestone} disabled={actionId === 'bulk-delete' || actionId === pendingDelete[0]?.id}>
+              {actionId === 'bulk-delete' || actionId === pendingDelete[0]?.id ? 'Removing...' : pendingDelete.length === 1 ? 'Remove Learning Step' : 'Remove Learning Steps'}
             </Button>
           </DialogFooter>
         </DialogContent>

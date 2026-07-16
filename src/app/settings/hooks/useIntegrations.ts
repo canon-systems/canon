@@ -22,7 +22,7 @@ export function providerLabel(provider: string) {
   if (provider === 'teams') return 'Microsoft Teams';
   if (provider === 'gmail') return 'Gmail';
   if (provider === 'google_calendar') return 'Google Calendar';
-  if (provider === 'outlook') return 'Outlook';
+  if (provider === 'outlook') return 'Outlook Calendar';
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
@@ -32,7 +32,7 @@ export function disconnectDescription(provider: string) {
   if (provider === 'teams') return 'Canon will stop using Microsoft Teams conversations.';
   if (provider === 'gmail') return 'Canon will stop using Gmail messages.';
   if (provider === 'google_calendar') return 'Canon will stop using Google Calendar events.';
-  if (provider === 'outlook') return 'Canon will stop using Outlook messages.';
+  if (provider === 'outlook') return 'Canon will remove the Outlook Calendar events it has saved.';
   return `Canon will stop using ${providerLabel(provider)}.`;
 }
 
@@ -112,8 +112,36 @@ export function useIntegrations(params: UseIntegrationsParams = {}) {
           if (event.type === 'connect') {
             connected = true;
             connectUI?.close();
+            const completeResponse = await fetch('/api/integrations/nango/complete', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                provider,
+                connectionId: event.payload.connectionId,
+              }),
+            });
+            const completion = (await completeResponse.json().catch(() => ({}))) as {
+              error?: string;
+              detail?: string;
+              calendarSync?: { status?: string; synced?: number };
+            };
+            if (!completeResponse.ok) {
+              setConnectingProvider(null);
+              toast.error(
+                `${providerLabel(provider)} connected, but Canon could not finish setup.`,
+                { description: completion.detail || completion.error || 'Refresh the page to try again.' }
+              );
+              clearIntegrationsCache();
+              await loadConnections(true);
+              return;
+            }
             clearIntegrationsCache();
-            window.location.href = `/settings?tab=integrations&success=true&provider=${encodeURIComponent(provider)}`;
+            const calendarStatus = completion.calendarSync?.status;
+            const eventCount = completion.calendarSync?.synced;
+            const statusQuery = calendarStatus
+              ? `&calendarStatus=${encodeURIComponent(calendarStatus)}&eventCount=${encodeURIComponent(String(eventCount ?? 0))}`
+              : '';
+            window.location.href = `/settings?tab=integrations&success=true&provider=${encodeURIComponent(provider)}${statusQuery}`;
             return;
           }
 

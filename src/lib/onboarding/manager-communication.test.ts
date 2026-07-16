@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  hasManagerCommunicationTarget,
   normalizeManagerCommunication,
   slackReviewTargetsForHire,
   slackUserToManagerFields,
@@ -57,5 +58,16 @@ describe('manager communication rules', () => {
       manager_chat_provider: 'slack',
       manager_chat_target_id: 'U123',
     });
+  });
+
+  it('checks the active provider target instead of requiring a Slack user ID', () => {
+    expect(hasManagerCommunicationTarget({
+      manager_chat_provider: 'teams',
+      manager_chat_target_id: 'teams-chat-1',
+    })).toBe(true);
+    expect(hasManagerCommunicationTarget({
+      manager_chat_provider: 'email',
+      manager_email: 'manager@example.com',
+    })).toBe(true);
   });
 });

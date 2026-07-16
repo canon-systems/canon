@@ -46,6 +46,17 @@ export async function upsertWorkspaceConnection(
     metadata?: Record<string, unknown>;
   }
 ) {
+  const { data: existing, error: existingError } = await supabase
+    .from('oauth_connections')
+    .select('metadata')
+    .eq('organization_id', params.organizationId)
+    .eq('provider', params.provider)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  const existingMetadata = existing?.metadata && typeof existing.metadata === 'object'
+    ? existing.metadata as Record<string, unknown>
+    : {};
+
   const { error } = await supabase
     .from('oauth_connections')
     .upsert(
@@ -56,6 +67,7 @@ export async function upsertWorkspaceConnection(
         connection_id: params.connectionId,
         status: params.status ?? 'active',
         metadata: {
+          ...existingMetadata,
           ...(params.metadata ?? {}),
           organization_id: params.organizationId,
           connected_by_user_id: params.connectedByUserId,

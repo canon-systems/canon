@@ -1,16 +1,14 @@
 import { inngest } from '../client';
 import { INNGEST_CRONS, INNGEST_EVENTS, INNGEST_FUNCTION_IDS } from '../constants';
-import { fetchUpcomingCalendarEvents, type CalendarProvider } from '@/lib/server/integrations/calendar';
+import type { CalendarProvider } from '@/lib/server/integrations/calendar';
+import {
+  calendarSyncWindow,
+  syncCalendarConnection,
+  type CalendarConnection,
+} from '@/lib/server/integrations/calendar-sync';
+import { reconcileNangoWorkspaceConnections } from '@/lib/server/integrations/nango-reconciliation';
 import { createLogger, errorMessage } from '@/lib/server/logging';
-import { upsertReadinessSourceEvents } from '@/lib/server/readiness/source-events';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-
-type CalendarConnection = {
-  organization_id: string;
-  provider: CalendarProvider;
-  connection_id: string;
-  metadata: Record<string, unknown> | null;
-};
 
 type CalendarSyncEvent = {
   organizationId?: string;
@@ -30,46 +28,6 @@ const log = createLogger('inngest.calendar_meeting_sync', {
   componentColor: 'orange',
 });
 
-function syncWindow() {
-  const from = new Date();
-  const to = new Date(from.getTime() + 14 * 24 * 60 * 60 * 1000);
-  return { from: from.toISOString(), to: to.toISOString() };
-}
-
-function meetingContent(event: {
-  title: string;
-  description: string | null;
-  startAt: string;
-  organizer: string | null;
-  attendees: string[];
-  customerDomain: string | null;
-}) {
-  return [
-    `Meeting: ${event.title}`,
-    event.description ? `Description: ${event.description}` : '',
-    `Start: ${event.startAt}`,
-    event.organizer ? `Organizer: ${event.organizer}` : '',
-    event.attendees.length > 0 ? `Attendees: ${event.attendees.join(', ')}` : '',
-    event.customerDomain ? `Customer domain: ${event.customerDomain}` : '',
-  ].filter(Boolean).join('\n');
-}
-
-async function updateConnectionSyncState(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  connection: CalendarConnection;
-  values: Record<string, unknown>;
-}) {
-  const { error } = await params.supabase
-    .from('oauth_connections')
-    .update({
-      metadata: { ...(params.connection.metadata ?? {}), ...params.values },
-      updated_at: new Date().toISOString(),
-    })
-    .eq('connection_id', params.connection.connection_id);
-
-  if (error) throw error;
-}
-
 export const calendarMeetingSync = inngest.createFunction(
   {
     id: INNGEST_FUNCTION_IDS.SYNC_CALENDAR_MEETINGS,
@@ -87,12 +45,29 @@ export const calendarMeetingSync = inngest.createFunction(
     const organizationId = typeof request.organizationId === 'string' ? request.organizationId : '';
     if (!organizationId) return { skipped: true, reason: 'missing_organization_id' };
 
-    const window = syncWindow();
+    const window = calendarSyncWindow();
     log.info('sync_start', {
       organizationId,
       provider: request.provider ?? 'all',
       reason: request.reason ?? 'event',
       windowDays: 14,
+    });
+
+    await step.run('reconcile-calendar-connections', async () => {
+      try {
+        return await reconcileNangoWorkspaceConnections({
+          supabase,
+          organizationId,
+          providers: ['google_calendar', 'outlook'],
+        });
+      } catch (error) {
+        log.warn('sync_skipped', {
+          organizationId,
+          reason: 'nango_reconciliation_failed',
+          error: errorMessage(error),
+        });
+        return [];
+      }
     });
 
     let query = supabase
@@ -120,132 +95,18 @@ export const calendarMeetingSync = inngest.createFunction(
       const result = await step.run(
         `sync-calendar-${connection.organization_id}-${connection.provider}-${connection.connection_id}`,
         async () => {
-          const syncStartedAt = new Date().toISOString();
-          await updateConnectionSyncState({
-            supabase,
-            connection,
-            values: { calendar_sync_status: 'syncing', calendar_sync_error: null },
-          });
-
           try {
-            const fetched = await fetchUpcomingCalendarEvents({
-              provider: connection.provider,
-              connectionId: connection.connection_id,
-              from: window.from,
-              to: window.to,
-            });
-
-            const now = new Date().toISOString();
-            if (fetched.events.length > 0) {
-              const { error: upsertError } = await supabase
-                .from('meeting_events')
-                .upsert(
-                  fetched.events.map((calendarEvent) => ({
-                    organization_id: connection.organization_id,
-                    provider: connection.provider,
-                    external_id: calendarEvent.id,
-                    title: calendarEvent.title,
-                    description: calendarEvent.description,
-                    start_at: calendarEvent.startAt,
-                    end_at: calendarEvent.endAt,
-                    organizer: calendarEvent.organizer,
-                    attendees: calendarEvent.attendees,
-                    meeting_url: calendarEvent.meetingUrl,
-                    customer_domain: calendarEvent.customerDomain,
-                    metadata: calendarEvent.metadata,
-                    status: 'active',
-                    connection_id: connection.connection_id,
-                    last_seen_at: syncStartedAt,
-                    updated_at: now,
-                  })),
-                  { onConflict: 'organization_id,provider,external_id' }
-                );
-
-              if (upsertError) throw upsertError;
-
-              await upsertReadinessSourceEvents({
-                supabase,
-                events: fetched.events.map((calendarEvent) => ({
-                  organizationId: connection.organization_id,
-                  provider: connection.provider,
-                  sourceType: 'calendar',
-                  externalId: `${connection.provider}:${calendarEvent.id}`,
-                  content: meetingContent(calendarEvent),
-                  occurredAt: calendarEvent.startAt,
-                  metadata: {
-                    title: calendarEvent.title,
-                    start_at: calendarEvent.startAt,
-                    end_at: calendarEvent.endAt,
-                    organizer: calendarEvent.organizer,
-                    attendees: calendarEvent.attendees,
-                    meeting_url: calendarEvent.meetingUrl,
-                    customer_domain: calendarEvent.customerDomain,
-                  },
-                })),
-              });
-            }
-
-            if (fetched.cancelledIds.length > 0) {
-              const { error: cancellationError } = await supabase
-                .from('meeting_events')
-                .update({ status: 'cancelled', last_seen_at: syncStartedAt, updated_at: now })
-                .eq('organization_id', connection.organization_id)
-                .eq('provider', connection.provider)
-                .in('external_id', fetched.cancelledIds);
-
-              if (cancellationError) throw cancellationError;
-            }
-
-            let staleMeetingCount = 0;
-            if (fetched.complete) {
-              const { data: staleMeetings, error: staleError } = await supabase
-                .from('meeting_events')
-                .update({ status: 'cancelled', updated_at: now })
-                .eq('organization_id', connection.organization_id)
-                .eq('provider', connection.provider)
-                .eq('status', 'active')
-                .gte('start_at', window.from)
-                .lte('start_at', window.to)
-                .lt('last_seen_at', syncStartedAt)
-                .select('id');
-
-              if (staleError) throw staleError;
-              staleMeetingCount = staleMeetings?.length ?? 0;
-            }
-
-            await updateConnectionSyncState({
-              supabase,
-              connection,
-              values: {
-                calendar_sync_status: 'ready',
-                calendar_sync_error: null,
-                calendar_last_synced_at: now,
-                calendar_events_seen: fetched.events.length,
-              },
-            });
-
+            const result = await syncCalendarConnection({ supabase, connection, window });
             log.info('sync_complete', {
               orgId: connection.organization_id,
               provider: connection.provider,
-              events: fetched.events.length,
-              cancelled: fetched.cancelledIds.length + staleMeetingCount,
-              pages: fetched.pages,
-              complete: fetched.complete,
+              events: result.synced,
+              cancelled: result.cancelled,
+              pages: result.pages,
+              complete: result.complete,
             });
-            return {
-              synced: fetched.events.length,
-              cancelled: fetched.cancelledIds.length + staleMeetingCount,
-            };
+            return result;
           } catch (syncError) {
-            await updateConnectionSyncState({
-              supabase,
-              connection,
-              values: {
-                calendar_sync_status: 'needs_attention',
-                calendar_sync_error: errorMessage(syncError),
-                calendar_last_attempted_at: new Date().toISOString(),
-              },
-            });
             log.error('sync_failed', {
               orgId: connection.organization_id,
               provider: connection.provider,

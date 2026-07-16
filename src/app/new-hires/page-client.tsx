@@ -1125,7 +1125,7 @@ export function NewHiresClient() {
         )}
       </div>
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent className="h-[min(780px,calc(100vh-2rem))] max-h-none max-w-[920px] gap-0 overflow-hidden p-0">
+        <DialogContent className="h-[min(780px,calc(100vh-2rem))] max-h-none max-w-[920px] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0">
           <DialogHeader className="border-b border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-6 py-5 pr-16">
             <DialogTitle>Launch Hire Path</DialogTitle>
             <DialogDescription>
@@ -1143,7 +1143,7 @@ export function NewHiresClient() {
         </DialogContent>
       </Dialog>
       <Dialog open={editingHire !== null} onOpenChange={(open) => !open && setEditingHire(null)}>
-        <DialogContent className="h-[min(780px,calc(100vh-2rem))] max-h-none max-w-[920px] gap-0 overflow-hidden p-0">
+        <DialogContent className="h-[min(780px,calc(100vh-2rem))] max-h-none max-w-[920px] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0">
           <DialogHeader className="border-b border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-6 py-5 pr-16">
             <DialogTitle>Edit Hire Path</DialogTitle>
             <DialogDescription>

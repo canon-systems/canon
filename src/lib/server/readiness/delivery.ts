@@ -131,15 +131,11 @@ export async function sendReadinessToTargets(params: {
   text: string;
 }) {
   const enabledTargets = params.targets.filter((target) => target.enabled);
-  const deliveries: ReadinessDeliveryResult[] = [];
-
-  for (const target of enabledTargets) {
-    deliveries.push(await sendReadinessDelivery({
+  return Promise.all(enabledTargets.map((target) => (
+    sendReadinessDelivery({
       organizationId: params.organizationId,
       target,
       text: params.text,
-    }));
-  }
-
-  return deliveries;
+    })
+  )));
 }

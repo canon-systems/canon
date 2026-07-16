@@ -17,6 +17,7 @@ const log = createLogger('api.integrations.disconnect', {
   eventLabels: {
     disconnect_requested: 'Disconnect Requested',
     source_cleanup_completed: 'Source Cleanup Completed',
+    calendar_data_deleted: 'Calendar Data Deleted',
     delivery_settings_cleared: 'Delivery Settings Cleared',
     token_cleanup_completed: 'Token Cleanup Completed',
     connection_cleanup_completed: 'Connection Cleanup Completed',
@@ -167,8 +168,34 @@ export async function POST(request: NextRequest) {
       )
     );
 
-    for (const integrationProvider of integrationProviderSet) {
-      if (!nangoIntegrationForProvider(integrationProvider)) continue;
+    const calendarProviders = Array.from(integrationProviderSet)
+      .filter((integrationProvider) => integrationProvider === 'google_calendar' || integrationProvider === 'outlook');
+    if (calendarProviders.length > 0) {
+      const [meetingDelete, sourceEventDelete] = await Promise.all([
+        supabase
+          .from('meeting_events')
+          .delete()
+          .eq('organization_id', organization.id)
+          .in('provider', calendarProviders),
+        supabase
+          .from('readiness_source_events')
+          .delete()
+          .eq('organization_id', organization.id)
+          .eq('source_type', 'calendar')
+          .in('provider', calendarProviders),
+      ]);
+
+      if (meetingDelete.error) throw meetingDelete.error;
+      if (sourceEventDelete.error) throw sourceEventDelete.error;
+      log.info('calendar_data_deleted', {
+        userId: user.id,
+        orgId: organization.id,
+        providers: calendarProviders,
+      });
+    }
+
+    await Promise.all(Array.from(integrationProviderSet).map(async (integrationProvider) => {
+      if (!nangoIntegrationForProvider(integrationProvider)) return;
 
       const nangoConnectionIds = externalConnectionIds.length > 0
         ? externalConnectionIds
@@ -176,7 +203,7 @@ export async function POST(request: NextRequest) {
             .filter((row) => row.provider === integrationProvider)
             .map((row) => row.connection_id);
 
-      for (const nangoConnectionId of nangoConnectionIds) {
+      await Promise.all(nangoConnectionIds.map(async (nangoConnectionId) => {
         try {
           await deleteNangoConnection({
             provider: integrationProvider,
@@ -185,8 +212,8 @@ export async function POST(request: NextRequest) {
         } catch (nangoError) {
           console.warn('Failed to delete Nango connection during disconnect:', nangoError);
         }
-      }
-    }
+      }));
+    }));
 
     const sourcesById = new Map<string, SourceRow>();
 

@@ -20,7 +20,6 @@ import {
   ShieldCheck as IconShieldCheck,
   Trash2 as IconTrash,
   Users as IconUsers,
-  X as IconX,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -41,7 +40,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/components/ui/utils';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
-import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
 import type { KnowledgeSource, ReadinessBrief, ReadinessCategory, ReadinessItem, ReadinessStatus } from '@/types/onboarding';
 
 const categories = [
@@ -337,12 +335,29 @@ export function ReadinessClient() {
   const [digestHourUtc, setDigestHourUtc] = useState(13);
   const [meetingPrepEnabled, setMeetingPrepEnabled] = useState(true);
   const [meetingPrepMinutesBefore, setMeetingPrepMinutesBefore] = useState(45);
-  const [meetingPrepRecipients, setMeetingPrepRecipients] = useState<SlackUser[]>([]);
   const [meetingBriefings, setMeetingBriefings] = useState<MeetingBriefingsResponse | null>(null);
   const [loadingMeetingBriefings, setLoadingMeetingBriefings] = useState(true);
   const [refreshingCalendar, setRefreshingCalendar] = useState(false);
   const [savingDeliverySettings, setSavingDeliverySettings] = useState(false);
   const [selectedDeliveryProvider, setSelectedDeliveryProvider] = useState<DeliveryProvider | null>(null);
+
+  function applyReadinessItems(updatedItems: ReadinessItem[]) {
+    const updates = new Map(updatedItems.map((item) => [item.id, item]));
+    setBrief((current) => current ? {
+      ...current,
+      items: current.items
+        .map((item) => updates.get(item.id) ?? item)
+        .filter((item) => item.status !== 'archived'),
+    } : current);
+  }
+
+  function removeReadinessItems(itemIds: string[]) {
+    const removed = new Set(itemIds);
+    setBrief((current) => current ? {
+      ...current,
+      items: current.items.filter((item) => !removed.has(item.id)),
+    } : current);
+  }
 
   async function generateSignals() {
     setGenerating(true);
@@ -391,20 +406,6 @@ export function ReadinessClient() {
       toast.error(message);
     } finally {
       setGenerating(false);
-    }
-  }
-
-  async function loadReadiness() {
-    try {
-      const res = await fetch('/api/onboarding/readiness');
-      const data = (await res.json()) as ReadinessResponse;
-      setBrief(data.brief ?? null);
-      setCanDeleteSignals(data.permissions?.can_delete_signals === true);
-    } catch {
-      setBrief(null);
-      setCanDeleteSignals(false);
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -491,8 +492,6 @@ export function ReadinessClient() {
         .map((connection) => connection.provider as DeliveryProvider));
       let nextChannelIds: string[] = [];
       let nextCustomTargets: DeliveryTarget[] = [];
-      let nextMeetingPrepRecipients: SlackUser[] = [];
-
       if (settingsResult.status === 'fulfilled' && settingsResult.value.settings) {
         nextChannelIds = settingsResult.value.settings.channelIds ?? [];
         const savedTargets = settingsResult.value.settings.targets ?? [];
@@ -505,19 +504,8 @@ export function ReadinessClient() {
             targetName: target.targetName,
             enabled: true,
           }));
-        const savedDmTargets = savedTargets.filter((target) => (
-          target.provider === 'slack' && target.targetType === 'dm' && target.enabled
-        ));
-        const savedUserIds = savedDmTargets.length > 0
-          ? savedDmTargets.map((target) => target.targetId)
-          : settingsResult.value.settings.userIds ?? [];
-        nextMeetingPrepRecipients = savedUserIds.map((userId) => {
-          const target = savedDmTargets.find((savedTarget) => savedTarget.targetId === userId);
-          return { id: userId, name: target?.targetName ?? userId, email: null };
-        });
         setSelectedChannelIds(nextChannelIds);
         setCustomTargets(nextCustomTargets);
-        setMeetingPrepRecipients(nextMeetingPrepRecipients);
         setWeeklyDigestEnabled(settingsResult.value.settings.weeklyDigestEnabled !== false);
         setDigestWeekday(typeof settingsResult.value.settings.digestWeekday === 'number' ? settingsResult.value.settings.digestWeekday : 1);
         setDigestHourUtc(typeof settingsResult.value.settings.digestHourUtc === 'number' ? settingsResult.value.settings.digestHourUtc : 13);
@@ -622,24 +610,14 @@ export function ReadinessClient() {
     }
     return activeCustomTargets.filter((target) => target.targetType === 'channel');
   }, [activeCustomTargets, activeDeliveryProvider, knownDeliveryTargetOptions, selectedChannelIds]);
-  const meetingPrepTargets = useMemo<DeliveryTarget[]>(() => meetingPrepRecipients.map((recipient) => ({
-    provider: 'slack',
-    targetType: 'dm',
-    targetId: recipient.id,
-    targetName: recipient.name,
-    enabled: true,
-  })), [meetingPrepRecipients]);
-  const savedDeliveryTargets = useMemo(
-    () => [...deliveryTargets, ...meetingPrepTargets],
-    [deliveryTargets, meetingPrepTargets]
-  );
   const visibleDeliveryTargetOptions = useMemo(
     () => knownDeliveryTargetOptions.filter((target) => target.targetType === 'channel'),
     [knownDeliveryTargetOptions]
   );
   const hasDeliveryTargets = deliveryTargets.length > 0;
+  const meetingPrepReady = activeProviderConnected && Boolean(meetingBriefings?.calendar.connected);
   const deliverySettingsReady = (!weeklyDigestEnabled || hasDeliveryTargets)
-    && (!meetingPrepEnabled || meetingPrepRecipients.length > 0);
+    && (!meetingPrepEnabled || meetingPrepReady);
   const allCategoriesSelected = activeCategories.length === categories.length;
   const filterLabel = selectedCategoryLabel(activeCategories);
   const selectedSignalCount = selectedSignalIds.size;
@@ -662,7 +640,7 @@ export function ReadinessClient() {
     ? `${digestWeekdayLabel}, ${digestHourUtc}:00 UTC`
     : 'Off';
   const meetingPrepSummary = meetingPrepEnabled
-    ? `${meetingPrepMinutesBefore} Min · ${meetingPrepRecipients.length} ${meetingPrepRecipients.length === 1 ? 'Recipient' : 'Recipients'}`
+    ? `${meetingPrepMinutesBefore} Min`
     : 'Off';
   const weeklyDigestStatus = weeklyDigestEnabled ? 'On' : 'Off';
   const meetingPrepStatus = meetingPrepEnabled ? 'On' : 'Off';
@@ -701,9 +679,9 @@ export function ReadinessClient() {
           targets: deliveryTargets,
         }),
       });
-      const data = (await res.json()) as { error?: string; detail?: string };
+      const data = (await res.json()) as { error?: string; detail?: string; items?: ReadinessItem[] };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send readiness update');
-      await loadReadiness();
+      applyReadinessItems(data.items ?? []);
       setSelectedItemId(item.id);
       toast.success('Signal sent');
     } catch (error) {
@@ -721,9 +699,9 @@ export function ReadinessClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: item.id, status }),
       });
-      const data = (await res.json()) as { error?: string; detail?: string };
+      const data = (await res.json()) as { error?: string; detail?: string; items?: ReadinessItem[] };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update readiness item');
-      await loadReadiness();
+      applyReadinessItems(data.items ?? []);
       setSelectedItemId(status === 'archived' ? null : item.id);
       const label = status === 'archived' ? 'Signal archived' : status === 'reviewed' ? 'Marked as reviewed' : 'Status updated';
       toast.success(label);
@@ -763,7 +741,7 @@ export function ReadinessClient() {
       setSelectedSignalIds((current) => new Set(Array.from(current).filter((id) => !deletedIdSet.has(id))));
       setSelectedItemId((current) => current && deletedIdSet.has(current) ? null : current);
       setDeleteRequest(null);
-      await loadReadiness();
+      removeReadinessItems(itemIds);
       const count = data.count ?? itemIds.length;
       toast.success(count === 1 ? 'Readiness signal deleted' : `${count} readiness signals deleted`);
     } catch (error) {
@@ -788,8 +766,8 @@ export function ReadinessClient() {
         body: JSON.stringify({
           channelIds,
           channelNames,
-          userIds: meetingPrepRecipients.map((recipient) => recipient.id),
-          targets: savedDeliveryTargets,
+          userIds: [],
+          targets: deliveryTargets,
           weeklyDigestEnabled,
           digestWeekday,
           digestHourUtc,
@@ -889,36 +867,23 @@ export function ReadinessClient() {
     )));
   }
 
-  function addMeetingPrepRecipient(recipient: SlackUser | null) {
-    if (!recipient) return;
-    setMeetingPrepRecipients((current) => (
-      current.some((savedRecipient) => savedRecipient.id === recipient.id)
-        ? current
-        : [...current, recipient]
-    ));
-  }
-
-  function removeMeetingPrepRecipient(recipientId: string) {
-    setMeetingPrepRecipients((current) => current.filter((recipient) => recipient.id !== recipientId));
-  }
-
   async function refreshCalendar() {
     setRefreshingCalendar(true);
     try {
       const response = await fetch('/api/onboarding/readiness/meeting-prep', { method: 'POST' });
-      const data = (await response.json().catch(() => ({}))) as { error?: string; detail?: string };
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+        synced?: number;
+        needsAttention?: number;
+      };
       if (!response.ok) throw new Error(data.detail || data.error || 'Canon could not refresh the calendar.');
-
-      setMeetingBriefings((current) => current ? {
-        ...current,
-        calendar: {
-          ...current.calendar,
-          providers: current.calendar.providers.map((provider) => ({ ...provider, syncStatus: 'syncing' })),
-        },
-      } : current);
-      toast.success('Calendar refresh started');
-      await new Promise((resolve) => window.setTimeout(resolve, 3000));
       await loadMeetingBriefings();
+      if ((data.needsAttention ?? 0) > 0) {
+        toast.error('One calendar needs attention. Canon will try again automatically.');
+      } else {
+        toast.success((data.synced ?? 0) > 0 ? 'Calendar events refreshed' : 'Calendar is up to date');
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Canon could not refresh the calendar.');
     } finally {
@@ -962,9 +927,9 @@ export function ReadinessClient() {
           targets: deliveryTargets,
         }),
       });
-      const data = (await res.json()) as { error?: string; detail?: string };
+      const data = (await res.json()) as { error?: string; detail?: string; items?: ReadinessItem[] };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send selected updates');
-      await loadReadiness();
+      applyReadinessItems(data.items ?? []);
       setSelectedSignalIds(new Set());
       setSelectedItemId(null);
       toast.success(itemIds.length === 1 ? 'Update sent' : `${itemIds.length} updates sent`);
@@ -987,10 +952,10 @@ export function ReadinessClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemIds, status }),
       });
-      const data = (await res.json()) as { error?: string; detail?: string };
+      const data = (await res.json()) as { error?: string; detail?: string; items?: ReadinessItem[] };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update selected items');
 
-      await loadReadiness();
+      applyReadinessItems(data.items ?? []);
       setSelectedSignalIds(new Set());
       if (status === 'archived') setSelectedItemId(null);
       const count = selectedItems.length;
@@ -1012,7 +977,7 @@ export function ReadinessClient() {
           <Skeleton className="h-8 w-44 bg-[var(--bg-primary)]" />
         </div>
         <div className="flex flex-1 overflow-hidden">
-          <div className="split-sidebar w-[340px] flex-shrink-0 border-r flex flex-col gap-3 p-4">
+          <div className="split-sidebar w-[280px] flex-shrink-0 border-r flex flex-col gap-3 p-4">
             <Skeleton className="h-8 bg-[var(--bg-primary)]" />
             {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-14 rounded-[8px] bg-[var(--bg-primary)]" />)}
           </div>
@@ -1038,10 +1003,7 @@ export function ReadinessClient() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Left sidebar — signal list + delivery settings */}
-        <div className={cn(
-          'split-sidebar flex-shrink-0 border-r flex flex-col overflow-hidden',
-          activeTab === 'signals' ? 'w-[340px]' : 'w-[280px]'
-        )}>
+        <div className="split-sidebar flex w-[280px] flex-shrink-0 flex-col overflow-hidden border-r">
           <Tabs
             value={activeTab}
             onValueChange={(v) => setActiveTab(v as 'signals' | 'delivery' | 'briefings')}
@@ -1059,53 +1021,51 @@ export function ReadinessClient() {
                 <TabsTrigger value="delivery">Delivery</TabsTrigger>
                 <TabsTrigger value="briefings">Briefings</TabsTrigger>
               </TabsList>
-              {activeTab === 'signals' && (
-                <div className="ml-auto pr-3">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-7 w-[148px] justify-between shrink-0">
-                        <span className="truncate">{filterLabel}</span>
-                        <IconChevronDown size={13} />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem
-                          role="menuitemcheckbox"
-                          aria-checked={allCategoriesSelected}
-                          onSelect={(e) => { e.preventDefault(); setActiveCategories(allCategoriesSelected ? [] : categories.map((c) => c.id)); }}
-                        >
-                          <span className="flex h-4 w-4 items-center justify-center">
-                            {allCategoriesSelected && <IconCheck size={13} />}
-                          </span>
-                          <span className="flex-1">All</span>
-                          <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{items.length}</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuGroup>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuGroup>
-                        {categories.map((category) => (
-                          <DropdownMenuItem
-                            key={category.id}
-                            role="menuitemcheckbox"
-                            aria-checked={activeCategories.includes(category.id)}
-                            onSelect={(e) => { e.preventDefault(); toggleCategory(category.id); }}
-                          >
-                            <span className="flex h-4 w-4 items-center justify-center">
-                              {activeCategories.includes(category.id) && <IconCheck size={13} />}
-                            </span>
-                            <span className="flex-1">{category.label}</span>
-                            <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{categoryCounts.get(category.id) ?? 0}</span>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              )}
             </div>
 
             <TabsContent value="signals" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+              <div className="shrink-0 border-b px-[14px] py-2" style={{ borderColor: 'var(--border-tertiary)' }}>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 w-full justify-between">
+                      <span className="truncate">Category: {filterLabel}</span>
+                      <IconChevronDown size={13} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-[310px]">
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        role="menuitemcheckbox"
+                        aria-checked={allCategoriesSelected}
+                        onSelect={(e) => { e.preventDefault(); setActiveCategories(allCategoriesSelected ? [] : categories.map((c) => c.id)); }}
+                      >
+                        <span className="flex h-4 w-4 items-center justify-center">
+                          {allCategoriesSelected && <IconCheck size={13} />}
+                        </span>
+                        <span className="flex-1">All</span>
+                        <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{items.length}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      {categories.map((category) => (
+                        <DropdownMenuItem
+                          key={category.id}
+                          role="menuitemcheckbox"
+                          aria-checked={activeCategories.includes(category.id)}
+                          onSelect={(e) => { e.preventDefault(); toggleCategory(category.id); }}
+                        >
+                          <span className="flex h-4 w-4 items-center justify-center">
+                            {activeCategories.includes(category.id) && <IconCheck size={13} />}
+                          </span>
+                          <span className="flex-1">{category.label}</span>
+                          <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{categoryCounts.get(category.id) ?? 0}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
               {/* Bulk action toolbar */}
               <div
                 className="sticky top-0 z-10 border-b px-[14px] py-[10px] shrink-0"
@@ -1516,9 +1476,11 @@ export function ReadinessClient() {
                                 </div>
                                 <div className="min-w-[180px] flex-1">
                                   <div className="truncate type-body-strong text-[var(--text-primary)]">{meeting.title}</div>
-                                  <div className="truncate type-caption text-[var(--text-tertiary)]">
-                                    {meeting.recipients.length > 0 ? meeting.recipients.join(', ') : `${meetingPrepRecipients.length} selected recipient${meetingPrepRecipients.length === 1 ? '' : 's'}`}
-                                  </div>
+                                  {meeting.recipients.length > 0 && (
+                                    <div className="truncate type-caption text-[var(--text-tertiary)]">
+                                      {meeting.recipients.join(', ')}
+                                    </div>
+                                  )}
                                 </div>
                                 <StatusBadge variant={status.variant} label={status.label} />
                               </div>
@@ -1776,37 +1738,6 @@ export function ReadinessClient() {
                         <span className="pb-2 type-caption text-[var(--text-tertiary)]">Minutes Before</span>
                       </div>
 
-                      <div className="max-w-[420px] space-y-2">
-                        <div className="type-caption font-medium text-[var(--text-secondary)]">Recipients</div>
-                        <SlackUserPicker
-                          value={null}
-                          onChange={addMeetingPrepRecipient}
-                          placeholder="Add a Slack teammate"
-                          disabled={!meetingPrepEnabled || !activeProviderConnected}
-                        />
-                        {meetingPrepRecipients.length > 0 ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {meetingPrepRecipients.map((recipient) => (
-                              <span
-                                key={recipient.id}
-                                className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[6px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2 type-caption font-medium text-[var(--text-secondary)]"
-                              >
-                                <span className="truncate">{recipient.name}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => removeMeetingPrepRecipient(recipient.id)}
-                                  className="shrink-0 text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-                                  aria-label={`Remove ${recipient.name}`}
-                                >
-                                  <IconX size={12} />
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                        ) : meetingPrepEnabled ? (
-                          <div className="type-caption text-[var(--amber-text)]">Choose who should receive meeting briefings.</div>
-                        ) : null}
-                      </div>
                     </div>
                   </div>
                 </section>
@@ -1814,7 +1745,7 @@ export function ReadinessClient() {
               <div className="shrink-0 border-t border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-7 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="type-caption text-[var(--text-tertiary)]">
-                    Weekly updates use channels. Meeting briefings use recipients.
+                    Weekly updates use channels.
                   </div>
                   <Button
                     size="sm"

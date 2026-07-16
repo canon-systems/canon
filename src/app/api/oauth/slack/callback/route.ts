@@ -12,6 +12,7 @@ import { requireWorkspace } from '@/lib/server/organization';
 export const runtime = 'nodejs';
 
 const STATE_COOKIE = 'slack_oauth_state';
+const RETURN_TO_COOKIE = 'slack_oauth_return_to';
 const log = createLogger('api.oauth.slack', {
   label: 'Slack OAuth',
   eventLabels: {
@@ -27,6 +28,15 @@ function redirectToSettings(origin: string, params: Record<string, string>) {
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
+  return NextResponse.redirect(url);
+}
+
+function redirectAfterConnect(origin: string, returnTo: string | undefined) {
+  if (!returnTo?.startsWith('/') || returnTo.startsWith('//')) {
+    return redirectToSettings(origin, { success: 'true', provider: 'slack' });
+  }
+  const url = new URL(returnTo, origin);
+  url.searchParams.set('slack', 'updated');
   return NextResponse.redirect(url);
 }
 
@@ -66,7 +76,9 @@ export async function GET(request: NextRequest) {
 
   const cookieStore = await cookies();
   const expectedState = cookieStore.get(STATE_COOKIE)?.value;
+  const returnTo = cookieStore.get(RETURN_TO_COOKIE)?.value;
   cookieStore.delete(STATE_COOKIE);
+  cookieStore.delete(RETURN_TO_COOKIE);
 
   if (!code || !returnedState || !expectedState) {
     log.warn('oauth_callback_error', {
@@ -136,6 +148,11 @@ export async function GET(request: NextRequest) {
       grantedScopes: grantedScopes || 'none',
       missingScopes: missingScopes.length > 0 ? missingScopes.join(',') : undefined,
     });
+    if (missingScopes.length > 0) {
+      return redirectToSettings(request.nextUrl.origin, {
+        error: 'Slack did not grant all required access. Please approve teammate and email access, then try again.',
+      });
+    }
 
     const { error: connectionError } = await supabase
       .from('oauth_connections')
@@ -213,7 +230,7 @@ export async function GET(request: NextRequest) {
     });
 
     await trackIntegrationStateChanged(supabase, organization.id, 'connected', 'slack', connectionId);
-    return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'slack' });
+    return redirectAfterConnect(request.nextUrl.origin, returnTo);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.error('oauth_callback_error', {

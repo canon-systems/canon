@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
 import { INNGEST_EVENTS } from '@/inngest/constants';
+import { syncCalendarConnection, type CalendarConnection } from '@/lib/server/integrations/calendar-sync';
+import { reconcileNangoWorkspaceConnections } from '@/lib/server/integrations/nango-reconciliation';
 import { isWorkspaceAdmin, requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,6 +100,10 @@ export async function GET() {
     const connections = (connectionsResult.data ?? []) as ConnectionRow[];
     const meetings = (meetingsResult.data ?? []) as MeetingRow[];
     const deliveries = (deliveriesResult.data ?? []) as DeliveryRow[];
+    const activeCalendarProviders = new Set(connections
+      .filter((connection) => connection.status === 'active')
+      .map((connection) => connection.provider));
+    const visibleMeetings = meetings.filter((meeting) => activeCalendarProviders.has(meeting.provider));
     const deliveriesByMeeting = new Map<string, DeliveryRow[]>();
     for (const delivery of deliveries) {
       deliveriesByMeeting.set(delivery.meeting_event_id, [
@@ -104,7 +111,7 @@ export async function GET() {
         delivery,
       ]);
     }
-    const meetingsById = new Map(meetings.map((meeting) => [meeting.id, meeting]));
+    const meetingsById = new Map(visibleMeetings.map((meeting) => [meeting.id, meeting]));
 
     const calendarProviders = connections.map((connection) => ({
       provider: connection.provider,
@@ -117,7 +124,7 @@ export async function GET() {
     const lastSyncedAt = calendarProviders
       .flatMap((provider) => provider.lastSyncedAt ? [provider.lastSyncedAt] : [])
       .sort((a, b) => b.localeCompare(a))[0] ?? null;
-    const upcoming = meetings
+    const upcoming = visibleMeetings
       .filter((meeting) => meeting.status === 'active' && new Date(meeting.start_at).getTime() >= now.getTime())
       .slice(0, 30)
       .map((meeting) => {
@@ -184,23 +191,52 @@ export async function POST() {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { supabase, organization } = await requireWorkspaceAdmin(user);
-    const { count, error } = await supabase
+    const { organization } = await requireWorkspaceAdmin(user);
+    const supabase = createServiceRoleClient();
+    await reconcileNangoWorkspaceConnections({
+      supabase,
+      organizationId: organization.id,
+      connectedByUserId: user.id,
+      providers: ['google_calendar', 'outlook'],
+    }).catch((reconciliationError) => {
+      console.warn('[api/onboarding/readiness/meeting-prep] Nango reconciliation failed', reconciliationError);
+    });
+    const { data: connections, error } = await supabase
       .from('oauth_connections')
-      .select('id', { count: 'exact', head: true })
+      .select('organization_id, provider, connection_id, metadata')
       .eq('organization_id', organization.id)
       .in('provider', ['google_calendar', 'outlook'])
       .eq('status', 'active');
 
     if (error) throw error;
-    if (!count) return NextResponse.json({ error: 'Connect a calendar before refreshing meetings.' }, { status: 400 });
+    if (!connections || connections.length === 0) {
+      return NextResponse.json({ error: 'Connect a calendar before refreshing meetings.' }, { status: 400 });
+    }
+
+    const results = await Promise.allSettled((connections as CalendarConnection[]).map((connection) => (
+      syncCalendarConnection({ supabase, connection })
+    )));
+    const failed = results.filter((result) => result.status === 'rejected');
+    if (failed.length > 0) {
+      await inngest.send({
+        name: INNGEST_EVENTS.CALENDAR_SYNC_REQUESTED,
+        data: { organizationId: organization.id, reason: 'manual_refresh_retry' },
+      }).catch(() => undefined);
+    }
+    const synced = results.flatMap((result) => result.status === 'fulfilled' ? [result.value.synced] : [])
+      .reduce((total, count) => total + count, 0);
 
     await inngest.send({
-      name: INNGEST_EVENTS.CALENDAR_SYNC_REQUESTED,
-      data: { organizationId: organization.id, reason: 'manual_refresh' },
+      name: INNGEST_EVENTS.MEETING_PREP_CHECK_REQUESTED,
+      data: { organizationId: organization.id, reason: 'manual_calendar_refresh' },
     });
 
-    return NextResponse.json({ queued: true });
+    return NextResponse.json({
+      refreshed: true,
+      synced,
+      connections: connections.length,
+      needsAttention: failed.length,
+    });
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/readiness/meeting-prep] POST failed', error);

@@ -19,6 +19,8 @@ export function MilestoneCard({
   previousTitle,
   targetRampDays,
   timingConflict,
+  selected,
+  onSelectedChange,
 }: {
   milestone: RampMilestone;
   onEdit: (milestone: RampMilestone) => void;
@@ -28,6 +30,8 @@ export function MilestoneCard({
   previousTitle?: string | null;
   targetRampDays?: number;
   timingConflict?: boolean;
+  selected?: boolean;
+  onSelectedChange?: (selected: boolean) => void;
 }) {
   const proofLabels = (milestone.evidence_requirements ?? [])
     .map((requirement) => requirement.label)
@@ -46,6 +50,15 @@ export function MilestoneCard({
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = timingConflict ? 'var(--amber)' : 'var(--canon-purple)'; }}
     >
       <div className="flex items-start gap-3 px-5 pt-4 pb-3">
+        {onSelectedChange && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(event) => onSelectedChange(event.target.checked)}
+            aria-label={`Select ${milestone.title}`}
+            className="mt-1 h-4 w-4 shrink-0 accent-[var(--canon-purple)]"
+          />
+        )}
         <div className="flex min-w-0 flex-1 items-start gap-3">
           {typeof sequenceIndex === 'number' && (
             <span

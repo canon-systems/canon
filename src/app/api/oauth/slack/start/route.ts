@@ -9,6 +9,7 @@ import { buildSlackAuthorizeUrl, getSlackOAuthScopes } from '@/lib/server/oauth/
 export const runtime = 'nodejs';
 
 const STATE_COOKIE = 'slack_oauth_state';
+const RETURN_TO_COOKIE = 'slack_oauth_return_to';
 const log = createLogger('api.oauth.slack', {
   label: 'Slack OAuth',
   eventLabels: {
@@ -33,6 +34,21 @@ export async function GET(request: NextRequest) {
     path: '/',
     maxAge: 10 * 60,
   });
+  const requestedReturnTo = request.nextUrl.searchParams.get('returnTo');
+  const returnTo = requestedReturnTo?.startsWith('/') && !requestedReturnTo.startsWith('//')
+    ? requestedReturnTo
+    : null;
+  if (returnTo) {
+    cookieStore.set(RETURN_TO_COOKIE, returnTo, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure,
+      path: '/',
+      maxAge: 10 * 60,
+    });
+  } else {
+    cookieStore.delete(RETURN_TO_COOKIE);
+  }
 
   const redirectUri = new URL('/api/oauth/slack/callback', request.nextUrl.origin).toString();
   const scopes = getSlackOAuthScopes();

@@ -55,10 +55,14 @@ export async function POST(request: NextRequest) {
       slack_user_id?: string;
     } & ManagerCommunicationInput;
 
-    const { first_name, last_name, email, start_date, slack_user_id } = body;
+    const firstName = body.first_name?.trim();
+    const lastName = body.last_name?.trim();
+    const email = body.email?.trim();
+    const startDate = body.start_date?.trim();
+    const slackUserId = body.slack_user_id?.trim();
     const role = normalizeRoleName(body.role ?? '');
-    if (!first_name || !last_name || !email || !role || !start_date || !slack_user_id) {
-      return NextResponse.json({ error: 'first_name, last_name, email, role, start_date, and slack_user_id are required' }, { status: 400 });
+    if (!firstName || !lastName || !email || !role || !startDate || !slackUserId) {
+      return NextResponse.json({ error: 'Choose a new hire account with an email, role, start date, and manager reviewer.' }, { status: 400 });
     }
     let managerCommunication;
     try {
@@ -86,12 +90,12 @@ export async function POST(request: NextRequest) {
       .insert({
         organization_id: organization.id,
         created_by: user.id,
-        first_name,
-        last_name,
+        first_name: firstName,
+        last_name: lastName,
         email,
         role,
-        start_date,
-        slack_user_id,
+        start_date: startDate,
+        slack_user_id: slackUserId,
         ...managerCommunication,
         ramp_day: 0,
         status: 'active',

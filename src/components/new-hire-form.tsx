@@ -17,7 +17,11 @@ import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
-import { slackUserToManagerFields } from '@/lib/onboarding/manager-communication';
+import {
+  hasManagerCommunicationTarget,
+  slackUserToManagerFields,
+} from '@/lib/onboarding/manager-communication';
+import { resolvedCommunicationEmail } from '@/lib/onboarding/communication-user';
 import { activeRoleProfiles } from '@/lib/onboarding/roles';
 import type { HireRole, RoleProfile } from '@/types/onboarding';
 
@@ -210,7 +214,14 @@ export function NewHireForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!form.firstName || !form.lastName || !form.email || !form.role || !startDate || !form.slack_user_id || !form.manager_name || !form.manager_slack_user_id) {
+    const hireEmail = resolvedCommunicationEmail(hireSlackUser, form.email);
+    const managerTargetReady = hasManagerCommunicationTarget({
+      manager_chat_provider: form.manager_chat_provider,
+      manager_chat_target_id: form.manager_chat_target_id,
+      manager_email: form.manager_email,
+      manager_slack_user_id: form.manager_slack_user_id,
+    });
+    if (!form.firstName || !form.lastName || !hireEmail || !form.role || !startDate || !form.slack_user_id || !form.manager_name || !managerTargetReady) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -226,15 +237,15 @@ export function NewHireForm({
           body: JSON.stringify({
             first_name: form.firstName.trim(),
             last_name: form.lastName.trim(),
-            email: form.email,
+            email: hireEmail,
             role: form.role,
             start_date: toDateInputValue(startDate),
             slack_user_id: form.slack_user_id,
             manager_name: form.manager_name.trim(),
             manager_email: form.manager_email.trim() || null,
-            manager_slack_user_id: form.manager_slack_user_id,
-            manager_chat_provider: 'slack',
-            manager_chat_target_id: form.manager_chat_target_id || form.manager_slack_user_id,
+            manager_slack_user_id: form.manager_slack_user_id || null,
+            manager_chat_provider: form.manager_chat_provider,
+            manager_chat_target_id: form.manager_chat_target_id || null,
           }),
         }
       );
@@ -255,18 +266,23 @@ export function NewHireForm({
     }
   }
 
-  const profileComplete = Boolean(hireSlackUser && form.firstName.trim() && form.lastName.trim() && form.email.trim());
+  const hireEmail = resolvedCommunicationEmail(hireSlackUser, form.email);
+  const profileComplete = Boolean(hireSlackUser && form.firstName.trim() && form.lastName.trim() && hireEmail);
   const scheduleComplete = Boolean(form.role && startDate);
-  const communicationComplete = Boolean(form.slack_user_id && form.manager_name && form.manager_slack_user_id);
+  const communicationComplete = Boolean(
+    form.slack_user_id
+    && form.manager_name.trim()
+    && hasManagerCommunicationTarget(form)
+  );
   const canSubmit = profileComplete && scheduleComplete && communicationComplete && roles.length > 0 && !submitting;
   const enteredName = [form.firstName.trim(), form.lastName.trim()].filter(Boolean).join(' ');
   const hireDisplayName = hireSlackUser?.name || enteredName || 'Not selected';
-  const hireDisplayDetail = hireSlackUser?.email || form.email || 'Slack account needed';
+  const hireDisplayDetail = hireEmail || 'Slack account needed';
   const managerDisplayName = managerSlackUser?.name || form.manager_name || 'Not selected';
   const managerDisplayDetail = managerSlackUser?.email || form.manager_email || 'Manager reviewer needed';
   const launchStatus = !hireSlackUser
     ? 'Select the new hire in Slack to launch.'
-    : !form.email
+    : !hireEmail
       ? 'Slack did not return an email for this account.'
       : canSubmit
         ? 'Ready to launch.'
@@ -322,7 +338,7 @@ export function NewHireForm({
                   </div>
                   <div>
                     <div className="type-kicker text-[var(--text-tertiary)]">Email</div>
-                    <div className="mt-1 truncate type-body-strong text-[var(--text-primary)]">{form.email || 'Missing from Slack'}</div>
+                    <div className="mt-1 truncate type-body-strong text-[var(--text-primary)]">{hireEmail || 'Missing from Slack'}</div>
                   </div>
                 </div>
               )}
