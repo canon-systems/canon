@@ -6,7 +6,6 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { encryptSecret } from '@/lib/server/oauth/tokenCrypto';
 import { exchangeSlackCode, getSlackOAuthScopes } from '@/lib/server/oauth/slackClient';
-import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
 import { requireWorkspace } from '@/lib/server/organization';
 
 export const runtime = 'nodejs';
@@ -229,7 +228,6 @@ export async function GET(request: NextRequest) {
       missingScopes: missingScopes.length > 0 ? missingScopes.join(',') : undefined,
     });
 
-    await trackIntegrationStateChanged(supabase, organization.id, 'connected', 'slack', connectionId);
     return redirectAfterConnect(request.nextUrl.origin, returnTo);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

@@ -2,6 +2,7 @@ import { fetchUpcomingCalendarEvents, type CalendarProvider } from '@/lib/server
 import { errorMessage } from '@/lib/server/logging';
 import { upsertReadinessSourceEvents } from '@/lib/server/readiness/source-events';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import type { Json } from '@/lib/supabase/database.types';
 
 export type CalendarConnection = {
   organization_id: string;
@@ -45,7 +46,7 @@ async function updateConnectionSyncState(params: {
   const { error } = await params.supabase
     .from('oauth_connections')
     .update({
-      metadata: { ...(params.connection.metadata ?? {}), ...params.values },
+      metadata: { ...(params.connection.metadata ?? {}), ...params.values } as Json,
       updated_at: new Date().toISOString(),
     })
     .eq('organization_id', params.connection.organization_id)
@@ -91,7 +92,7 @@ export async function syncCalendarConnection(params: {
             attendees: calendarEvent.attendees,
             meeting_url: calendarEvent.meetingUrl,
             customer_domain: calendarEvent.customerDomain,
-            metadata: calendarEvent.metadata,
+            metadata: calendarEvent.metadata as Json,
             status: 'active',
             connection_id: params.connection.connection_id,
             last_seen_at: syncStartedAt,

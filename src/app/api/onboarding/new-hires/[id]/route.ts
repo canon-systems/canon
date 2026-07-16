@@ -105,7 +105,7 @@ export async function GET(
     );
 
     const milestonePath = (milestones ?? []).map((milestone) => {
-      const tools = requiredToolsForEvidence((milestone.evidence_requirements ?? []) as MilestoneEvidenceRequirement[]);
+      const tools = requiredToolsForEvidence((milestone.evidence_requirements ?? []) as unknown as MilestoneEvidenceRequirement[]);
       return {
         milestone,
         progress: progressByMilestone.get(milestone.id) ?? null,

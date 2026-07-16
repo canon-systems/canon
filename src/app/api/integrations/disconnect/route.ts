@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { deleteSourceDependents } from '@/lib/server/services/sourceCleanup';
-import {
-  sourceUrlFromSourceScope,
-  trackIntegrationStateChanged,
-  trackSourceDisconnected,
-} from '@/lib/server/services/usageTracking';
 import { canonicalProvider } from '@/lib/providers';
 import { createLogger } from '@/lib/server/logging';
 import { deleteNangoConnection, nangoIntegrationForProvider } from '@/lib/server/integrations/nango';
@@ -32,11 +26,6 @@ type ConnectionRow = {
 
 type SourceRow = {
   id: string;
-  provider: string | null;
-  scope?: Record<string, unknown> | null;
-  name?: string | null;
-  slack_channel_id?: string | null;
-  slack_channel_name?: string | null;
 };
 
 function normalizeProvider(value: string | undefined): string | null {
@@ -221,7 +210,7 @@ export async function POST(request: NextRequest) {
     if (sourceProviders.length > 0) {
       const { data: sourceRowsByProvider, error: sourceByProviderError } = (await supabase
         .from('knowledge_sources')
-        .select('id, provider, name, slack_channel_id, slack_channel_name')
+        .select('id')
         .eq('organization_id', organization.id)
         .in('provider', sourceProviders)) as { data: SourceRow[] | null; error: { message?: string } | null };
 
@@ -235,12 +224,6 @@ export async function POST(request: NextRequest) {
     }
 
     for (const source of sourcesById.values()) {
-      await deleteSourceDependents({
-        supabase,
-        organizationId: organization.id,
-        sourceId: source.id,
-      });
-
       const { error: sourceDeleteError } = await supabase
         .from('knowledge_sources')
         .delete()
@@ -249,22 +232,6 @@ export async function POST(request: NextRequest) {
 
       if (sourceDeleteError) {
         throw sourceDeleteError;
-      }
-
-      try {
-        const providerForLog = typeof source.provider === 'string' ? source.provider : 'unknown';
-        const sourceScope = source.scope && typeof source.scope === 'object'
-          ? source.scope
-          : providerForLog === 'slack'
-            ? {
-                channelId: source.slack_channel_id,
-                channelName: source.slack_channel_name || source.name,
-              }
-            : null;
-        const sourceUrl = sourceUrlFromSourceScope(providerForLog, sourceScope);
-        await trackSourceDisconnected(supabase, organization.id, source.id, sourceUrl, null, providerForLog);
-      } catch (logError) {
-        console.warn('Failed to track source disconnect during integration cleanup:', logError);
       }
     }
 
@@ -325,20 +292,6 @@ export async function POST(request: NextRequest) {
       provider: normalizedProvider ?? provider ?? 'unknown',
       connectionIds: internalConnectionIds,
     });
-
-    const providerForLog = connectionRows[0]?.provider || normalizedProvider || provider || 'unknown';
-    const connectionIdForLog = connectionId || connectionRows[0]?.connection_id;
-    try {
-      await trackIntegrationStateChanged(
-        supabase,
-        organization.id,
-        'disconnected',
-        providerForLog,
-        connectionIdForLog
-      );
-    } catch (logError) {
-      console.warn('Failed to track integration disconnect:', logError);
-    }
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {

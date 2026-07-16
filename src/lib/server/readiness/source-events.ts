@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import type { Json } from '@/lib/supabase/database.types';
 import type { KnowledgeProvider, ReadinessSourceType } from '@/types/onboarding';
 
 type SupabaseServiceClient = ReturnType<typeof createServiceRoleClient>;
@@ -38,7 +39,7 @@ export type KnowledgeChunkSourceEventSeed = {
   source_id: string | null;
   content: string;
   metadata: Record<string, unknown> | null;
-  created_at: string;
+  created_at: string | null;
 };
 
 export function readinessContentHash(content: string) {
@@ -137,7 +138,7 @@ export async function upsertReadinessSourceEvents(params: {
       content,
       occurred_at: event.occurredAt ?? null,
       status: event.status ?? 'pending',
-      metadata: event.metadata ?? {},
+      metadata: (event.metadata ?? {}) as Json,
       updated_at: now,
     }];
   });

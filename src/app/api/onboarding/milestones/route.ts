@@ -11,6 +11,7 @@ import {
   normalizeRampTargets,
 } from '@/lib/onboarding/milestone-ramp';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
+import type { Json } from '@/lib/supabase/database.types';
 import type { HireRole, MilestoneEvidenceRequirement } from '@/types/onboarding';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -63,6 +64,10 @@ function evidenceRequirements(value: unknown): MilestoneEvidenceRequirement[] {
 
 function stringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
+}
+
+function jsonValue(value: unknown): Json {
+  return value as Json;
 }
 
 function eventIds(value: unknown) {
@@ -624,7 +629,7 @@ export async function POST(request: NextRequest) {
       const successSignals = stringArray(body.success_signals).length > 0 ? stringArray(body.success_signals) : proposal.success_signals;
       const requirements = evidenceRequirements(body.evidence_requirements).length > 0
         ? evidenceRequirements(body.evidence_requirements)
-        : proposal.evidence_requirements;
+        : evidenceRequirements(proposal.evidence_requirements);
       if (await hasMilestoneContentConflict({
         supabase,
         organizationId: organization.id,
@@ -657,7 +662,7 @@ export async function POST(request: NextRequest) {
           real_work_trigger: realWorkTrigger,
           success_signals: successSignals,
           retrieval_brief: retrievalBrief,
-          evidence_requirements: requirements,
+          evidence_requirements: jsonValue(requirements),
           source_evidence: proposal.source_evidence,
           confidence: proposal.confidence,
           status: 'active',
@@ -765,7 +770,7 @@ export async function POST(request: NextRequest) {
         real_work_trigger: realWorkTrigger,
         success_signals: stringArray(body.success_signals),
         retrieval_brief: retrievalBrief,
-        evidence_requirements: requirements,
+        evidence_requirements: jsonValue(requirements),
         confidence: 0.5,
         status: 'active',
         updated_at: new Date().toISOString(),
@@ -902,7 +907,7 @@ export async function PATCH(request: NextRequest) {
         real_work_trigger: realWorkTrigger,
         success_signals: stringArray(body.success_signals),
         retrieval_brief: retrievalBrief,
-        evidence_requirements: evidenceRequirements(body.evidence_requirements),
+        evidence_requirements: jsonValue(evidenceRequirements(body.evidence_requirements)),
         updated_at: new Date().toISOString(),
       })
       .eq('id', milestoneId)

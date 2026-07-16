@@ -586,7 +586,7 @@ export async function PATCH(request: NextRequest) {
     const { supabase, organization } = await requireWorkspace(user);
 
     const updatedAt = new Date().toISOString();
-    const update: Partial<ReadinessItem> = {
+    const update = {
       status: body.status,
       updated_at: updatedAt,
       sent_at: body.status === 'sent' ? updatedAt : null,

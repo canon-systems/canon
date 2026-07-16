@@ -20,6 +20,7 @@ import {
   type ReadinessSourceEventRow,
 } from '@/lib/server/readiness/source-events';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import type { Json } from '@/lib/supabase/database.types';
 import type {
   HireRole,
   ReadinessCategory,
@@ -85,7 +86,7 @@ type ReadinessItemPayload = {
   affected_roles: HireRole[];
   source: string;
   source_url: string | null;
-  source_metadata: Record<string, unknown>;
+  source_metadata: Json;
   status: 'draft' | 'reviewed' | 'sent' | 'archived';
   updated_at: string;
 };
@@ -449,8 +450,11 @@ async function insertReadinessItemsForObservations(params: {
   if (existingError) throw existingError;
 
   const existingDedupeKeys = new Set(
-    (existing ?? []).flatMap((item: { source_metadata?: Record<string, unknown> | null }) => {
-      const key = item.source_metadata?.observation_dedupe_key;
+    (existing ?? []).flatMap((item) => {
+      const sourceMetadata = item.source_metadata && typeof item.source_metadata === 'object' && !Array.isArray(item.source_metadata)
+        ? item.source_metadata
+        : null;
+      const key = sourceMetadata?.observation_dedupe_key;
       return typeof key === 'string' ? [key] : [];
     })
   );
@@ -480,7 +484,7 @@ async function insertReadinessItemsForObservations(params: {
           observation_dedupe_key: observation.dedupe_key,
           source_event_ids: observation.source_event_ids,
           source_hashes: observation.source_hashes,
-        },
+        } as Json,
         status: 'draft',
         updated_at: now,
       };
@@ -767,12 +771,15 @@ async function markObservationsSent(params: {
 
   if (itemFetchError) throw itemFetchError;
 
-  const itemIds = (items ?? []).flatMap((item: { id: string; source_metadata?: Record<string, unknown> | null }) => (
-    typeof item.source_metadata?.observation_dedupe_key === 'string' &&
-    dedupeKeys.includes(item.source_metadata.observation_dedupe_key)
+  const itemIds = (items ?? []).flatMap((item) => {
+    const sourceMetadata = item.source_metadata && typeof item.source_metadata === 'object' && !Array.isArray(item.source_metadata)
+      ? item.source_metadata
+      : null;
+    const dedupeKey = sourceMetadata?.observation_dedupe_key;
+    return typeof dedupeKey === 'string' && dedupeKeys.includes(dedupeKey)
       ? [item.id]
-      : []
-  ));
+      : [];
+  });
 
   if (itemIds.length > 0) {
     const { error } = await params.supabase

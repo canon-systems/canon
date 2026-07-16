@@ -14,6 +14,7 @@ import {
   normalizeMilestoneContentKey,
   normalizeRampTargets,
 } from '@/lib/onboarding/milestone-ramp';
+import type { Json, TablesInsert } from '@/lib/supabase/database.types';
 import type { HireRole, MilestoneEvidenceRequirement, MilestoneSourceEvidence } from '@/types/onboarding';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -648,7 +649,7 @@ async function generateForOrg(organizationId: string) {
         for (const proposal of ((draftProposalsResult.data ?? []) as DraftProposalResult[]).filter((item) => item.role === role)) {
           if (typeof proposal.suggested_day_trigger === 'number') occupiedDays.add(proposal.suggested_day_trigger);
         }
-        const inserts: object[] = [];
+        const inserts: TablesInsert<'milestone_proposals'>[] = [];
         let duplicateCount = 0;
         let timingConflictCount = 0;
         let earliestDay = 0;
@@ -694,8 +695,8 @@ async function generateForOrg(organizationId: string) {
             real_work_trigger: proposal.real_work_trigger,
             success_signals: proposal.success_signals,
             retrieval_brief: proposal.retrieval_brief,
-            evidence_requirements: proposal.evidence_requirements,
-            source_evidence: sourceEvidence,
+            evidence_requirements: proposal.evidence_requirements as unknown as Json,
+            source_evidence: sourceEvidence as unknown as Json,
             rationale: proposal.rationale,
             confidence: proposal.confidence,
             normalized_key: normalizedKey,

@@ -1,17 +1,12 @@
 import { embed } from 'ai';
 import { embeddingModel } from '@/lib/ai';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import type { Json, TablesInsert } from '@/lib/supabase/database.types';
 import type { KnowledgeTextChunk } from '@/lib/server/knowledge-sync/text-chunker';
 
 type SupabaseServiceClient = ReturnType<typeof createServiceRoleClient>;
 
-type KnowledgeChunkInsert = {
-  organization_id: string;
-  source_id: string;
-  content: string;
-  metadata: Record<string, unknown>;
-  embedding: string;
-};
+type KnowledgeChunkInsert = TablesInsert<'knowledge_chunks'>;
 
 type KnowledgeChunkWriterLogger = {
   error(event: string, metadata?: Record<string, unknown>): void;
@@ -37,7 +32,7 @@ export async function embedAndReplaceKnowledgeChunks(params: {
       organization_id: params.organizationId,
       source_id: params.sourceId,
       content: chunk.content,
-      metadata: chunk.metadata,
+      metadata: chunk.metadata as Json,
       embedding: JSON.stringify(embedding),
     });
   }
