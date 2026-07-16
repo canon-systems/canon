@@ -6,13 +6,18 @@ import Link from 'next/link';
 import {
   Briefcase as IconBriefcase,
   Calendar as IconCalendar,
+  CheckCircle2 as IconCheckCircle,
   ChevronDown as IconChevronDown,
+  Clock3 as IconClock,
   Loader2 as IconLoader2,
   MoreVertical as IconDotsVertical,
   Pause as IconPlayerPause,
   Pencil as IconPencil,
   Play as IconPlayerPlay,
   Plus as IconPlus,
+  RefreshCw as IconRefresh,
+  RotateCcw as IconRotateCcw,
+  ScanSearch as IconScanSearch,
   Search as IconSearch,
   Send as IconSend,
   Trash2 as IconTrash,
@@ -41,8 +46,16 @@ import { ToolLogo } from '@/components/ToolLogo';
 import { ToolNameCombobox } from '@/components/tool-name-combobox';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
 import { cn } from '@/components/ui/utils';
+import {
+  milestoneCheckLabel,
+  milestoneEvidenceLabel,
+  milestoneProofLabel,
+  milestoneSourceLabel,
+  type MilestoneCheckOutcome,
+  type MilestoneCheckRun,
+} from '@/lib/onboarding/milestone-checks';
 import { normalizeMilestoneProgressStatus } from '@/lib/onboarding/milestone-ramp';
-import type { AccessRequest, HireRole, HireStatus, NewHireMilestonePathItem, RampDelivery } from '@/types/onboarding';
+import type { AccessRequest, HireRole, HireStatus, MilestoneEvidenceType, NewHireMilestonePathItem, RampDelivery } from '@/types/onboarding';
 
 type HireRow = {
   id: string;
@@ -69,6 +82,7 @@ type HireDetail = {
   deliveries: RampDelivery[];
   access_requests: AccessRequest[];
   milestone_path: NewHireMilestonePathItem[];
+  milestone_checks: MilestoneCheckRun[];
 };
 
 function fmtDate(d: string) {
@@ -116,6 +130,29 @@ function progressLabel(status: string | null | undefined) {
   if (normalized === 'needs_review') return 'Needs Review';
   if (normalized === 'briefed') return 'Briefed';
   return 'Not Started';
+}
+
+function checkVariant(outcome: MilestoneCheckOutcome) {
+  if (outcome === 'verified') return 'delivered';
+  if (outcome === 'needs_review') return 'stalled';
+  if (outcome === 'failed') return 'error';
+  if (outcome === 'no_proof') return 'pending';
+  return 'upcoming';
+}
+
+function evidenceVariant(evidenceType: MilestoneEvidenceType, needsManagerReview: boolean) {
+  if (needsManagerReview) return 'stalled';
+  if (evidenceType === 'new_hire_blocker') return 'error';
+  if (evidenceType === 'manager_reopened') return 'upcoming';
+  return 'delivered';
+}
+
+function metadataText(metadata: Record<string, unknown>, key: string) {
+  return typeof metadata[key] === 'string' ? String(metadata[key]).trim() : '';
+}
+
+function metadataFlag(metadata: Record<string, unknown>, key: string) {
+  return metadata[key] === true;
 }
 
 function HireActionsMenu({
@@ -167,6 +204,85 @@ function HireActionsMenu({
   );
 }
 
+function AutoChecksPanel({
+  detail,
+  checking,
+  onCheck,
+}: {
+  detail: HireDetail;
+  checking: boolean;
+  onCheck: () => void;
+}) {
+  const latestCheck = detail.milestone_checks[0] ?? null;
+  const needsReview = detail.milestone_path.filter((item) => (
+    normalizeMilestoneProgressStatus(item.progress?.status) === 'needs_review'
+  )).length;
+  const verified = detail.milestone_path.filter((item) => (
+    normalizeMilestoneProgressStatus(item.progress?.status) === 'verified'
+  )).length;
+  const open = Math.max(0, detail.milestone_path.length - verified);
+
+  return (
+    <section className="surface-panel-muted mb-5 overflow-hidden rounded-[8px] border" aria-labelledby="canon-checks-heading">
+      <div className="flex flex-wrap items-start justify-between gap-4 px-4 py-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[7px] bg-[var(--canon-purple-light)] text-[var(--canon-purple-dark)]">
+            <IconScanSearch size={17} aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 id="canon-checks-heading" className="type-section-title" style={{ color: 'var(--text-primary)' }}>
+                Canon Checks
+              </h2>
+              {latestCheck && (
+                <StatusBadge variant={checkVariant(latestCheck.outcome)} label={milestoneCheckLabel(latestCheck.outcome)} />
+              )}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 type-caption" style={{ color: 'var(--text-tertiary)' }}>
+              <span className="inline-flex items-center gap-1.5">
+                <IconClock size={13} aria-hidden="true" />
+                {latestCheck ? `Last checked ${fmtDetailDateTime(latestCheck.completed_at)}` : 'No checks yet'}
+              </span>
+              {latestCheck?.sources_checked.map((source) => (
+                <span key={source}>{milestoneSourceLabel(source)}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <Button size="sm" variant="secondary" onClick={onCheck} disabled={checking || detail.hire.status !== 'active'}>
+          {checking ? <IconLoader2 size={13} className="animate-spin" /> : <IconRefresh size={13} />}
+          {checking ? 'Checking...' : 'Check Now'}
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-3 border-y border-[var(--border-tertiary)] bg-[var(--bg-primary)]">
+        {[
+          { label: 'Needs review', value: needsReview, color: needsReview > 0 ? 'var(--amber-text)' : 'var(--text-primary)' },
+          { label: 'Verified', value: verified, color: 'var(--green-text)' },
+          { label: 'Open', value: open, color: 'var(--text-primary)' },
+        ].map((item, index) => (
+          <div
+            key={item.label}
+            className={cn('min-w-0 px-4 py-3', index > 0 && 'border-l border-[var(--border-tertiary)]')}
+          >
+            <div className="type-metric-sm" style={{ color: item.color }}>{item.value}</div>
+            <div className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>{item.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-start gap-2.5 px-4 py-3" role="status" aria-live="polite">
+        {latestCheck?.outcome === 'verified'
+          ? <IconCheckCircle size={16} className="mt-[2px] flex-shrink-0 text-[var(--green-text)]" aria-hidden="true" />
+          : <IconScanSearch size={16} className="mt-[2px] flex-shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />}
+        <p className="type-body leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
+          {latestCheck?.summary ?? 'No checks have run for this hire yet.'}
+        </p>
+      </div>
+    </section>
+  );
+}
+
 export function NewHiresClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -185,6 +301,7 @@ export function NewHiresClient() {
   const [pendingDelete, setPendingDelete] = useState<Pick<HireRow, 'id' | 'first_name' | 'last_name' | 'status'> | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [milestoneActionId, setMilestoneActionId] = useState<string | null>(null);
+  const [milestoneCheckRunning, setMilestoneCheckRunning] = useState(false);
 
   const [sendingRequestId, setSendingRequestId] = useState<string | null>(null);
   const [addAccessOpen, setAddAccessOpen] = useState(false);
@@ -340,33 +457,70 @@ export function NewHiresClient() {
     }
   }
 
-  async function verifyMilestone(item: NewHireMilestonePathItem) {
+  async function reviewMilestone(
+    item: NewHireMilestonePathItem,
+    decision: 'verify' | 'keep_open' | 'mark_blocked' | 'unverify'
+  ) {
     if (!selectedDetail) return;
-    setMilestoneActionId(item.milestone.id);
+    setMilestoneActionId(`${item.milestone.id}:${decision}`);
     try {
-      const res = await fetch('/api/onboarding/milestone-evidence', {
+      const evidenceId = item.evidence.find((entry) => metadataFlag(entry.metadata, 'needs_manager_review'))?.id
+        ?? item.evidence[0]?.id
+        ?? null;
+      const res = await fetch('/api/onboarding/milestone-reviews', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           new_hire_id: selectedDetail.hire.id,
           milestone_id: item.milestone.id,
-          evidence_type: 'manager_verification',
-          trust_level: 'high',
-          confidence: 0.95,
-          source: 'manager_review',
-          source_event_id: `manager-review:${selectedDetail.hire.id}:${item.milestone.id}`,
-          metadata: { reviewed_from: 'new_hires_detail' },
+          evidence_id: evidenceId,
+          decision,
         }),
       });
       if (!res.ok) {
-        toast.error('Unable to confirm this learning step. Please try again.');
+        toast.error('Canon could not save that review. Please try again.');
         return;
       }
       const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
       const detailJson = (await detailRes.json()) as HireDetail;
       setSelectedDetail(detailJson);
+      if (decision === 'verify') toast.success('Learning step verified');
+      if (decision === 'unverify') toast.success('Learning step reopened. Canon will continue watching.');
+      if (decision === 'keep_open') toast.success('Kept open. Canon will continue watching.');
+      if (decision === 'mark_blocked') toast.success('Learning step marked blocked');
     } finally {
       setMilestoneActionId(null);
+    }
+  }
+
+  async function runMilestoneCheck() {
+    if (!selectedDetail) return;
+    setMilestoneCheckRunning(true);
+    try {
+      const res = await fetch('/api/onboarding/milestone-checks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_hire_id: selectedDetail.hire.id }),
+      });
+      const json = (await res.json()) as { check?: MilestoneCheckRun | null; error?: string };
+      if (!res.ok) {
+        toast.error(json.error ?? 'Canon could not finish this check. Please try again.');
+        return;
+      }
+
+      const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
+      const detailJson = (await detailRes.json()) as HireDetail;
+      setSelectedDetail(detailJson);
+
+      if (json.check?.outcome === 'needs_review') {
+        toast.success('Canon found possible proof. Manager review is needed.');
+      } else if (json.check?.outcome === 'failed') {
+        toast.error('Canon could not finish this check. Please try again.');
+      } else {
+        toast.success('Check complete');
+      }
+    } finally {
+      setMilestoneCheckRunning(false);
     }
   }
 
@@ -609,7 +763,7 @@ export function NewHiresClient() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{selectedDetail.hire.first_name} {selectedDetail.hire.last_name}</span>
                       <span
-                        className="type-control px-[10px] py-[4px] rounded-[6px] text-[var(--text-primary)]"
+                        className="type-control px-[10px] py-[4px] rounded-[6px] text-[var(--text-on-accent)]"
                         style={{ backgroundColor: 'var(--canon-purple)' }}
                       >
                         Day {selectedDetail.hire.ramp_day}
@@ -693,6 +847,11 @@ export function NewHiresClient() {
 
                 <div className="flex-1 overflow-y-auto px-8 py-6">
                   <TabsContent value="Ramp Evidence">
+                    <AutoChecksPanel
+                      detail={selectedDetail}
+                      checking={milestoneCheckRunning}
+                      onCheck={() => void runMilestoneCheck()}
+                    />
                     {selectedDetail.milestone_path.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
                         <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
@@ -707,9 +866,14 @@ export function NewHiresClient() {
                           const relatedDelivery = selectedDetail.deliveries.find((delivery) => delivery.milestone_id === item.milestone.id);
                           const evidence = item.evidence;
                           const status = normalizeMilestoneProgressStatus(item.progress?.status);
+                          const needsReview = status === 'needs_review';
+                          const milestoneBusy = milestoneActionId?.startsWith(`${item.milestone.id}:`) ?? false;
                           return (
                             <Card
                               key={item.milestone.id}
+                              id={needsReview && selectedDetail.milestone_path.find((candidate) => (
+                                normalizeMilestoneProgressStatus(candidate.progress?.status) === 'needs_review'
+                              ))?.milestone.id === item.milestone.id ? 'needs-review' : undefined}
                               className="overflow-hidden transition-colors duration-[120ms] hover:border-[var(--border-secondary)]"
                             >
                               <CardHeader className="flex-row items-start gap-4 px-5 py-4">
@@ -722,7 +886,7 @@ export function NewHiresClient() {
                                       Day {item.milestone.day_trigger} - {item.milestone.title}
                                     </div>
                                     <div className="type-body whitespace-nowrap pt-1" style={{ color: 'var(--text-tertiary)' }}>
-                                      {item.progress?.verified_at
+                                      {status === 'verified' && item.progress?.verified_at
                                         ? `Verified ${fmtDetailDate(item.progress.verified_at)}`
                                         : item.progress?.first_briefed_at
                                           ? `Briefed ${fmtDetailDate(item.progress.first_briefed_at)}`
@@ -743,36 +907,49 @@ export function NewHiresClient() {
                                 )}
                                 {item.required_tools.length > 0 && (
                                   <div className="mb-4 type-body" style={{ color: item.access_ready ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
-                                    Access readiness: {item.required_tools.join(', ')} {item.access_ready ? 'granted' : 'pending'}
+                                    Tool access: {item.required_tools.join(', ')} {item.access_ready ? 'ready' : 'waiting'}
                                   </div>
                                 )}
                                 {evidence.length > 0 ? (
                                   <div className="flex flex-col gap-2">
-                                    {evidence.slice(0, 3).map((entry) => (
-                                      <div key={entry.id} className="surface-panel-subtle rounded-[8px] border px-3 py-2">
-                                        <div className="type-body-strong" style={{ color: 'var(--text-primary)' }}>
-                                          {entry.evidence_type.replace(/_/g, ' ')} · {entry.trust_level} trust
+                                    {evidence.slice(0, 3).map((entry) => {
+                                      const managerReviewNeeded = metadataFlag(entry.metadata, 'needs_manager_review');
+                                      const reason = metadataText(entry.metadata, 'reason');
+                                      const excerpt = metadataText(entry.metadata, 'excerpt');
+                                      const proofLabel = milestoneProofLabel({
+                                        evidenceType: entry.evidence_type,
+                                        confidence: entry.confidence,
+                                        needsManagerReview: managerReviewNeeded,
+                                      });
+
+                                      return (
+                                        <div key={entry.id} className="surface-panel-subtle rounded-[8px] border px-3 py-3">
+                                          <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div className="type-body-strong" style={{ color: 'var(--text-primary)' }}>
+                                              {milestoneEvidenceLabel(entry.evidence_type)}
+                                            </div>
+                                            <StatusBadge
+                                              variant={evidenceVariant(entry.evidence_type, managerReviewNeeded)}
+                                              label={proofLabel}
+                                            />
+                                          </div>
+                                          <div className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                                            {milestoneSourceLabel(entry.source)} - {fmtDetailDate(entry.created_at)}
+                                          </div>
+                                          {reason && (
+                                            <div className="mt-3">
+                                              <div className="type-kicker mb-1" style={{ color: 'var(--text-tertiary)' }}>Why Canon Flagged This</div>
+                                              <p className="type-body leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>{reason}</p>
+                                            </div>
+                                          )}
+                                          {excerpt && (
+                                            <blockquote className="mt-3 border-l-2 border-[var(--canon-purple-border)] pl-3 type-caption leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                                              {excerpt}
+                                            </blockquote>
+                                          )}
                                         </div>
-                                        <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-                                          {Math.round(entry.confidence * 100)}% match · {entry.source.replace(/_/g, ' ')} · {fmtDetailDate(entry.created_at)}
-                                        </div>
-                                        {entry.metadata && typeof entry.metadata === 'object' && 'response_type' in entry.metadata && (
-                                          <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-                                            Response: {String(entry.metadata.response_type).replace(/_/g, ' ')}
-                                          </div>
-                                        )}
-                                        {entry.metadata && typeof entry.metadata === 'object' && 'reason' in entry.metadata && (
-                                          <div className="type-body mt-2 leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                                            {String(entry.metadata.reason)}
-                                          </div>
-                                        )}
-                                        {entry.metadata && typeof entry.metadata === 'object' && 'excerpt' in entry.metadata && (
-                                          <div className="type-caption mt-2 line-clamp-2" style={{ color: 'var(--text-tertiary)' }}>
-                                            {String(entry.metadata.excerpt)}
-                                          </div>
-                                        )}
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 ) : (
                                   <p className="type-body leading-[1.65]" style={{ color: 'var(--text-tertiary)' }}>
@@ -789,19 +966,62 @@ export function NewHiresClient() {
                                     </p>
                                   </details>
                                 )}
-                                {status !== 'verified' && (
-                                  <div className="mt-4">
+                                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border-tertiary)] pt-4">
+                                  {status === 'verified' ? (
                                     <Button
-                                      type="button"
                                       size="sm"
                                       variant="secondary"
-                                      onClick={() => verifyMilestone(item)}
-                                      disabled={milestoneActionId === item.milestone.id}
+                                      onClick={() => void reviewMilestone(item, 'unverify')}
+                                      disabled={milestoneBusy}
                                     >
-                                      {milestoneActionId === item.milestone.id ? 'Confirming...' : 'Manager Confirm'}
+                                      {milestoneActionId === `${item.milestone.id}:unverify`
+                                        ? <IconLoader2 size={13} className="animate-spin" />
+                                        : <IconRotateCcw size={13} />}
+                                      Reopen Step
                                     </Button>
-                                  </div>
-                                )}
+                                  ) : (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant={needsReview ? 'default' : 'secondary'}
+                                        onClick={() => void reviewMilestone(item, 'verify')}
+                                        disabled={milestoneBusy}
+                                      >
+                                        {milestoneActionId === `${item.milestone.id}:verify`
+                                          ? <IconLoader2 size={13} className="animate-spin" />
+                                          : <IconCheckCircle size={13} />}
+                                        {needsReview ? 'Verify' : 'Mark Complete'}
+                                      </Button>
+                                      {needsReview && (
+                                        <>
+                                          <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => void reviewMilestone(item, 'keep_open')}
+                                            disabled={milestoneBusy}
+                                          >
+                                            {milestoneActionId === `${item.milestone.id}:keep_open` && (
+                                              <IconLoader2 size={13} className="animate-spin" />
+                                            )}
+                                            Keep Open
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-[var(--red-text)] hover:text-[var(--red-text)]"
+                                            onClick={() => void reviewMilestone(item, 'mark_blocked')}
+                                            disabled={milestoneBusy}
+                                          >
+                                            {milestoneActionId === `${item.milestone.id}:mark_blocked` && (
+                                              <IconLoader2 size={13} className="animate-spin" />
+                                            )}
+                                            Mark Blocked
+                                          </Button>
+                                        </>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
                               </CardContent>
                             </Card>
                           );
@@ -905,7 +1125,7 @@ export function NewHiresClient() {
         )}
       </div>
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent className="h-[min(780px,calc(100vh-2rem))] max-h-none max-w-[920px] gap-0 overflow-hidden p-0">
+        <DialogContent className="h-[min(780px,calc(100vh-2rem))] max-h-none max-w-[920px] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0">
           <DialogHeader className="border-b border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-6 py-5 pr-16">
             <DialogTitle>Launch Hire Path</DialogTitle>
             <DialogDescription>
@@ -923,7 +1143,7 @@ export function NewHiresClient() {
         </DialogContent>
       </Dialog>
       <Dialog open={editingHire !== null} onOpenChange={(open) => !open && setEditingHire(null)}>
-        <DialogContent className="h-[min(780px,calc(100vh-2rem))] max-h-none max-w-[920px] gap-0 overflow-hidden p-0">
+        <DialogContent className="h-[min(780px,calc(100vh-2rem))] max-h-none max-w-[920px] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0">
           <DialogHeader className="border-b border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-6 py-5 pr-16">
             <DialogTitle>Edit Hire Path</DialogTitle>
             <DialogDescription>

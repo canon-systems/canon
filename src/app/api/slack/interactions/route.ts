@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
-import { syncAccessReadinessEvidence, recordMilestoneEvidence } from '@/lib/server/milestoneEvidence';
+import { INNGEST_EVENTS } from '@/inngest/constants';
+import {
+  managerMilestoneDecisionConfig,
+  managerReviewResultBlocks,
+  recordManagerMilestoneDecision,
+  recordMilestoneEvidence,
+  syncAccessReadinessEvidence,
+  type ManagerMilestoneDecision,
+} from '@/lib/server/milestoneEvidence';
 import { createLogger } from '@/lib/server/logging';
 import { getAccessRequestContext } from '@/lib/server/slackInteractions';
 import { getSlackBotTokenForOrganization } from '@/lib/server/slack/transport';
@@ -149,6 +157,7 @@ async function updateManagerReviewMessage(params: {
   responseUrl: string | undefined;
   statusText: string;
   actor: string;
+  reopenValue?: string;
 }) {
   if (!params.responseUrl) return;
 
@@ -158,15 +167,7 @@ async function updateManagerReviewMessage(params: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         replace_original: true,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `${params.statusText}\nReviewed by *${params.actor}*.`,
-            },
-          },
-        ],
+        blocks: managerReviewResultBlocks(params),
         text: params.statusText,
       }),
     });
@@ -263,7 +264,7 @@ export async function POST(request: NextRequest) {
           log.warn('interaction_skipped', { reason: 'sync_readiness_failed', error: err instanceof Error ? err.message : String(err) });
         });
 
-        await inngest.send({ name: 'onboarding/access.granted', data: { accessRequestId: updated.id } }).catch((err: unknown) => {
+        await inngest.send({ name: INNGEST_EVENTS.ACCESS_GRANTED, data: { accessRequestId: updated.id } }).catch((err: unknown) => {
           log.warn('interaction_skipped', { reason: 'inngest_send_failed', error: err instanceof Error ? err.message : String(err) });
         });
 
@@ -275,7 +276,8 @@ export async function POST(request: NextRequest) {
       if (
         action?.action_id === 'manager_milestone_verify' ||
         action?.action_id === 'manager_milestone_keep_open' ||
-        action?.action_id === 'manager_milestone_mark_blocked'
+        action?.action_id === 'manager_milestone_mark_blocked' ||
+        action?.action_id === 'manager_milestone_unverify'
       ) {
         const { newHireId, milestoneId, evidenceId } = parseManagerMilestoneActionValue(action.value);
         if (!newHireId || !milestoneId) {
@@ -293,34 +295,13 @@ export async function POST(request: NextRequest) {
           slack_user_name: payload.user?.name ?? null,
         };
 
-        const evidenceConfig = action.action_id === 'manager_milestone_verify'
-          ? {
-              evidenceType: 'manager_verification' as const,
-              trustLevel: 'high' as const,
-              confidence: 0.95,
-              statusText: '*Milestone verified.*',
-            }
-          : action.action_id === 'manager_milestone_mark_blocked'
-            ? {
-                evidenceType: 'new_hire_blocker' as const,
-                trustLevel: 'low' as const,
-                confidence: 0.2,
-                statusText: '*Milestone marked blocked.*',
-              }
-            : {
-                evidenceType: 'communication_activity' as const,
-                trustLevel: 'low' as const,
-                confidence: 0.3,
-                statusText: '*Milestone kept open for review.*',
-              };
-
-        const result = await recordMilestoneEvidence({
+        const decision = action.action_id.replace('manager_milestone_', '') as ManagerMilestoneDecision;
+        const evidenceConfig = managerMilestoneDecisionConfig(decision);
+        const result = await recordManagerMilestoneDecision({
           supabase,
           newHireId,
           milestoneId,
-          evidenceType: evidenceConfig.evidenceType,
-          trustLevel: evidenceConfig.trustLevel,
-          confidence: evidenceConfig.confidence,
+          decision,
           source: 'manager_slack_review',
           sourceEventId: `manager-slack-review:${newHireId}:${milestoneId}:${action.action_id}:${payload.user?.id ?? 'unknown'}`,
           metadata: actionMetadata,
@@ -346,6 +327,9 @@ export async function POST(request: NextRequest) {
           responseUrl: payload.response_url,
           statusText: evidenceConfig.statusText,
           actor,
+          reopenValue: decision === 'verify'
+            ? `${newHireId}|${milestoneId}|${evidenceId ?? ''}`
+            : undefined,
         });
 
         log.info('milestone_feedback_received', {

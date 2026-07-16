@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { createLogger } from '@/lib/server/logging';
 import { requireWorkspace } from '@/lib/server/organization';
 
@@ -62,7 +63,7 @@ export async function POST(
 
     try {
       await inngest.send({
-        name: 'onboarding/knowledge.sync.requested',
+        name: INNGEST_EVENTS.KNOWLEDGE_SYNC_REQUESTED,
         data: { sourceId: id, organizationId: organization.id },
       });
     } catch (queueError) {

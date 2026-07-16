@@ -38,6 +38,15 @@ function optionalString(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+export function hasManagerCommunicationTarget(input: ManagerCommunicationInput) {
+  const provider = isManagerChatProvider(input.manager_chat_provider)
+    ? input.manager_chat_provider
+    : 'slack';
+
+  if (provider === 'email') return Boolean(optionalString(input.manager_email));
+  return Boolean(optionalString(input.manager_chat_target_id) ?? optionalString(input.manager_slack_user_id));
+}
+
 export function normalizeManagerCommunication(input: ManagerCommunicationInput): ManagerCommunicationPatch {
   const provider = isManagerChatProvider(input.manager_chat_provider)
     ? input.manager_chat_provider

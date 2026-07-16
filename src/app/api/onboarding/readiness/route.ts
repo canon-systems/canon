@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { sendReadinessToTargets, type ReadinessDeliveryResult, type ReadinessDeliveryTargetRow } from '@/lib/server/readiness/delivery';
 import { createLogger } from '@/lib/server/logging';
-import { requireWorkspace } from '@/lib/server/organization';
+import { isWorkspaceAdmin, requireWorkspace } from '@/lib/server/organization';
 import { deliveryTargetRows, validSlackDmTargets } from '@/lib/server/readiness/delivery-targets';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
@@ -32,6 +33,8 @@ const log = createLogger('api.onboarding.readiness', {
     send_status_updated: 'Send Status Updated',
     status_update_requested: 'Status Update Requested',
     status_update_completed: 'Status Update Completed',
+    delete_requested: 'Delete Requested',
+    delete_completed: 'Delete Completed',
   },
 });
 
@@ -327,7 +330,10 @@ export async function GET() {
     if (error) throw error;
     const fallbackSource = await fallbackReadinessSource(supabase, organization.id);
     const readinessItems = withFallbackSourceMetadata((items ?? []) as ReadinessItem[], fallbackSource);
-    return NextResponse.json({ brief: buildReadinessBrief(readinessItems) });
+    return NextResponse.json({
+      brief: buildReadinessBrief(readinessItems),
+      permissions: { can_delete_signals: isWorkspaceAdmin(organization.role) },
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/readiness] GET failed', error);
@@ -378,13 +384,13 @@ export async function POST(request: NextRequest) {
         delivery: 'manual_generation_only',
       });
       await inngest.send({
-        name: 'onboarding/readiness.generate.requested',
+        name: INNGEST_EVENTS.READINESS_GENERATE_REQUESTED,
         data: { organizationId: organization.id },
       });
       log.info('generate_queued', {
         userId: user.id,
         orgId: organization.id,
-        event: 'onboarding/readiness.generate.requested',
+        event: INNGEST_EVENTS.READINESS_GENERATE_REQUESTED,
       });
       return NextResponse.json({ ok: true, requested: true });
     }
@@ -619,5 +625,79 @@ export async function PATCH(request: NextRequest) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/readiness] PATCH failed', error);
     return NextResponse.json({ error: 'Failed to update readiness item', detail: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const body = (await request.json().catch(() => ({}))) as { id?: unknown; itemIds?: unknown };
+    const bodyItemIds = validReadinessItemIds(body.itemIds);
+    if (Array.isArray(body.itemIds) && bodyItemIds.length !== body.itemIds.length) {
+      return NextResponse.json({ error: 'Invalid readiness signal id' }, { status: 400 });
+    }
+
+    const itemIds = Array.from(new Set([
+      ...(typeof body.id === 'string' && body.id.trim().length > 0 ? [body.id.trim()] : []),
+      ...bodyItemIds.map((id) => id.trim()),
+    ]));
+
+    if (itemIds.length === 0) {
+      return NextResponse.json({ error: 'Readiness signal id is required' }, { status: 400 });
+    }
+    if (itemIds.length > 100) {
+      return NextResponse.json({ error: 'Delete up to 100 readiness signals at a time' }, { status: 400 });
+    }
+
+    const { supabase, organization } = await requireWorkspace(user);
+    if (!isWorkspaceAdmin(organization.role)) {
+      return NextResponse.json({ error: 'Only workspace admins can delete readiness signals' }, { status: 403 });
+    }
+    log.info('delete_requested', {
+      userId: user.id,
+      orgId: organization.id,
+      itemId: itemIds[0] ?? null,
+      itemIdCount: itemIds.length,
+    });
+
+    const { data: foundItems, error: lookupError } = await supabase
+      .from('readiness_items')
+      .select('id')
+      .eq('organization_id', organization.id)
+      .in('id', itemIds);
+    if (lookupError) throw lookupError;
+    const foundIds = (foundItems ?? []).map((item) => item.id);
+
+    if (foundIds.length !== itemIds.length) {
+      return NextResponse.json({ error: 'One or more readiness signals were not found' }, { status: 404 });
+    }
+
+    const { data: deletedItems, error: deleteError } = await supabase
+      .from('readiness_items')
+      .delete()
+      .eq('organization_id', organization.id)
+      .in('id', itemIds)
+      .select('id');
+    if (deleteError) throw deleteError;
+    const deletedIds = (deletedItems ?? []).map((item) => item.id);
+
+    if (deletedIds.length !== itemIds.length) {
+      return NextResponse.json({ error: 'One or more readiness signals could not be deleted' }, { status: 409 });
+    }
+
+    log.info('delete_completed', {
+      userId: user.id,
+      orgId: organization.id,
+      itemId: deletedIds[0] ?? null,
+      itemIdCount: deletedIds.length,
+    });
+
+    return NextResponse.json({ deleted: true, itemIds: deletedIds, count: deletedIds.length });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[api/onboarding/readiness] DELETE failed', error);
+    return NextResponse.json({ error: 'Failed to delete readiness signal', detail: message }, { status: 500 });
   }
 }

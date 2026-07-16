@@ -1,8 +1,9 @@
 import { nangoProxyGet } from '@/lib/server/integrations/nango';
 
-type CalendarProvider = 'google_calendar' | 'outlook';
+export type CalendarProvider = 'google_calendar' | 'outlook';
 
 type RawRecord = Record<string, unknown>;
+type ProxyQuery = Record<string, string | number | boolean | null | undefined>;
 
 export type NormalizedCalendarEvent = {
   id: string;
@@ -16,6 +17,15 @@ export type NormalizedCalendarEvent = {
   customerDomain: string | null;
   metadata: Record<string, unknown>;
 };
+
+export type CalendarFetchResult = {
+  events: NormalizedCalendarEvent[];
+  cancelledIds: string[];
+  pages: number;
+  complete: boolean;
+};
+
+const MAX_CALENDAR_PAGES = 25;
 
 function isRecord(value: unknown): value is RawRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -35,13 +45,26 @@ function nestedStringField(record: RawRecord, key: string, nestedKeys: string[])
   return stringField(value, nestedKeys);
 }
 
+function nestedRecordStringField(record: RawRecord, key: string, nestedKey: string, keys: string[]) {
+  const value = record[key];
+  if (!isRecord(value)) return null;
+  return nestedStringField(value, nestedKey, keys);
+}
+
+function normalizeProviderDateTime(value: string, timeZone: string | null) {
+  const trimmed = value.trim();
+  if (!trimmed.includes('T')) return trimmed;
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(trimmed)) return trimmed;
+  return timeZone?.toUpperCase() === 'UTC' ? `${trimmed}Z` : trimmed;
+}
+
 function dateTimeField(record: RawRecord, keys: string[]) {
   for (const key of keys) {
     const value = record[key];
     if (typeof value === 'string' && value.trim().length > 0) return value.trim();
     if (isRecord(value)) {
       const dateTime = stringField(value, ['dateTime', 'date_time', 'date']);
-      if (dateTime) return dateTime;
+      if (dateTime) return normalizeProviderDateTime(dateTime, stringField(value, ['timeZone', 'time_zone']));
     }
   }
   return null;
@@ -56,7 +79,9 @@ function attendeeEmails(record: RawRecord) {
     if (!isRecord(entry)) return [];
     const email = stringField(entry, ['email', 'address']);
     const nestedEmail = nestedStringField(entry, 'emailAddress', ['address', 'email']);
-    return [email, nestedEmail].filter((value): value is string => Boolean(value)).map((value) => value.toLowerCase());
+    return [email, nestedEmail]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.toLowerCase());
   })));
 }
 
@@ -67,33 +92,55 @@ function externalDomain(emails: string[]) {
     .find((domain) => domain && !ignored.has(domain)) ?? null;
 }
 
-function meetingUrl(record: RawRecord) {
-  return stringField(record, ['hangoutLink', 'onlineMeetingUrl', 'webLink', 'htmlLink', 'joinUrl', 'meeting_url']);
+function eventMeetingUrl(record: RawRecord) {
+  return stringField(record, ['hangoutLink', 'onlineMeetingUrl', 'webLink', 'htmlLink', 'joinUrl', 'meeting_url'])
+    ?? nestedStringField(record, 'onlineMeeting', ['joinUrl', 'join_url']);
 }
 
-function normalizeCalendarEvent(raw: unknown, index: number): NormalizedCalendarEvent | null {
-  if (!isRecord(raw)) return null;
+function eventDescription(record: RawRecord) {
+  return stringField(record, ['description', 'bodyPreview', 'body', 'notes'])
+    ?? nestedStringField(record, 'body', ['content']);
+}
 
-  const id = stringField(raw, ['id', 'iCalUID', 'uid', 'event_id', 'eventId']) ?? `calendar-event-${index}`;
-  const title = stringField(raw, ['summary', 'subject', 'title', 'name']) ?? 'Untitled meeting';
+function eventId(record: RawRecord) {
+  return stringField(record, ['id', 'iCalUID', 'uid', 'event_id', 'eventId']);
+}
+
+function isCancelledEvent(record: RawRecord) {
+  return stringField(record, ['status'])?.toLowerCase() === 'cancelled' || record.isCancelled === true;
+}
+
+function isAllDayEvent(record: RawRecord) {
+  if (record.isAllDay === true) return true;
+  return isRecord(record.start) && typeof record.start.date === 'string' && !record.start.dateTime;
+}
+
+export function normalizeCalendarEvent(raw: unknown): NormalizedCalendarEvent | null {
+  if (!isRecord(raw) || isCancelledEvent(raw) || isAllDayEvent(raw)) return null;
+
+  const id = eventId(raw);
   const startAt = dateTimeField(raw, ['start', 'start_at', 'startAt', 'startTime', 'start_time']);
-  if (!startAt) return null;
+  if (!id || !startAt) return null;
 
   const attendees = attendeeEmails(raw);
   const organizer = nestedStringField(raw, 'organizer', ['email', 'address'])
+    ?? nestedRecordStringField(raw, 'organizer', 'emailAddress', ['address', 'email'])
     ?? nestedStringField(raw, 'creator', ['email', 'address'])
     ?? stringField(raw, ['organizer', 'creator']);
-  const allEmails = Array.from(new Set([...attendees, ...(organizer && organizer.includes('@') ? [organizer.toLowerCase()] : [])]));
+  const allEmails = Array.from(new Set([
+    ...attendees,
+    ...(organizer && organizer.includes('@') ? [organizer.toLowerCase()] : []),
+  ]));
 
   return {
     id,
-    title,
-    description: stringField(raw, ['description', 'bodyPreview', 'body', 'notes']),
+    title: stringField(raw, ['summary', 'subject', 'title', 'name']) ?? 'Untitled meeting',
+    description: eventDescription(raw),
     startAt,
     endAt: dateTimeField(raw, ['end', 'end_at', 'endAt', 'endTime', 'end_time']),
     organizer,
     attendees,
-    meetingUrl: meetingUrl(raw),
+    meetingUrl: eventMeetingUrl(raw),
     customerDomain: externalDomain(allEmails),
     metadata: raw,
   };
@@ -109,37 +156,79 @@ function eventsFromResponse(response: unknown) {
   return [];
 }
 
+function nextGooglePage(response: unknown, currentQuery: ProxyQuery) {
+  if (!isRecord(response)) return null;
+  const pageToken = stringField(response, ['nextPageToken']);
+  return pageToken ? { endpoint: '/calendar/v3/calendars/primary/events', query: { ...currentQuery, pageToken } } : null;
+}
+
+function nextOutlookPage(response: unknown) {
+  if (!isRecord(response)) return null;
+  const nextLink = stringField(response, ['@odata.nextLink']);
+  if (!nextLink) return null;
+
+  const url = new URL(nextLink);
+  return {
+    endpoint: url.pathname,
+    query: Object.fromEntries(url.searchParams.entries()) as ProxyQuery,
+  };
+}
+
 export async function fetchUpcomingCalendarEvents(params: {
   provider: CalendarProvider;
   connectionId: string;
   from: string;
   to: string;
-}) {
-  const endpoint = params.provider === 'google_calendar'
+}): Promise<CalendarFetchResult> {
+  let endpoint = params.provider === 'google_calendar'
     ? '/calendar/v3/calendars/primary/events'
-    : '/v1.0/me/events';
-  const query = params.provider === 'google_calendar'
+    : '/v1.0/me/calendarView';
+  let query: ProxyQuery = params.provider === 'google_calendar'
     ? {
         timeMin: params.from,
         timeMax: params.to,
         singleEvents: true,
+        showDeleted: true,
         orderBy: 'startTime',
-        maxResults: 100,
+        maxResults: 250,
       }
     : {
-        '$filter': `start/dateTime ge '${params.from}' and start/dateTime le '${params.to}'`,
+        startDateTime: params.from,
+        endDateTime: params.to,
         '$orderby': 'start/dateTime',
         '$top': 100,
       };
 
-  const response = await nangoProxyGet({
-    provider: params.provider,
-    connectionId: params.connectionId,
-    endpoint,
-    query,
-  });
+  const rawEvents: unknown[] = [];
+  let pages = 0;
+  let hasMore = false;
 
-  return eventsFromResponse(response)
-    .map((event, index) => normalizeCalendarEvent(event, index))
+  while (pages < MAX_CALENDAR_PAGES) {
+    const response = await nangoProxyGet({
+      provider: params.provider,
+      connectionId: params.connectionId,
+      endpoint,
+      query,
+      headers: params.provider === 'outlook' ? { Prefer: 'outlook.timezone="UTC"' } : undefined,
+    });
+    pages++;
+    rawEvents.push(...eventsFromResponse(response));
+
+    const nextPage = params.provider === 'google_calendar'
+      ? nextGooglePage(response, query)
+      : nextOutlookPage(response);
+    hasMore = Boolean(nextPage);
+    if (!nextPage) break;
+    endpoint = nextPage.endpoint;
+    query = nextPage.query;
+  }
+
+  const cancelledIds = Array.from(new Set(rawEvents.flatMap((event) => (
+    isRecord(event) && isCancelledEvent(event) && eventId(event) ? [eventId(event) as string] : []
+  ))));
+  const events = rawEvents
+    .map((event) => normalizeCalendarEvent(event))
     .filter((event): event is NormalizedCalendarEvent => event !== null);
+
+  return { events, cancelledIds, pages, complete: !hasMore };
 }

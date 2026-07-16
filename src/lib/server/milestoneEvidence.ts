@@ -8,8 +8,10 @@ import { createLogger } from '@/lib/server/logging';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getSlackBotTokenForOrganization, postSlackMessage } from '@/lib/server/slack/transport';
 import {
+  type CanonicalMilestoneProgressStatus,
   isAccessStatusConfirmed,
   isAccessStatusGranted,
+  normalizeMilestoneProgressStatus,
   normalizeToolName,
   progressStatusForEvidence,
   requiredToolsForEvidence,
@@ -22,6 +24,7 @@ const log = createLogger('server.milestone_evidence', {
   eventLabels: {
     evidence_rejected: 'Evidence Rejected',
     progress_update_failed: 'Progress Update Failed',
+    progress_rollback_failed: 'Progress Rollback Failed',
     evidence_write_failed: 'Evidence Write Failed',
     notification_write_failed: 'Notification Write Failed',
     evidence_recorded: 'Evidence Recorded',
@@ -40,6 +43,11 @@ type RecordEvidenceParams = {
   sourceUrl?: string | null;
   metadata?: Record<string, unknown>;
   createdBy?: string | null;
+  progressStatusOverride?: CanonicalMilestoneProgressStatus;
+  requiredCurrentStatus?: CanonicalMilestoneProgressStatus;
+  allowVerifiedStatusChange?: boolean;
+  clearVerifiedAt?: boolean;
+  suppressNotification?: boolean;
 };
 
 function clampConfidence(value: number) {
@@ -95,7 +103,7 @@ function compactSlackText(value: unknown, fallback = '') {
   return compacted.length <= 500 ? compacted : `${compacted.slice(0, 497).trimEnd()}...`;
 }
 
-function managerReviewBlocks(params: {
+export function managerReviewBlocks(params: {
   title: string;
   body: string;
   newHireId: string;
@@ -120,13 +128,13 @@ function managerReviewBlocks(params: {
   if (reason) {
     blocks.push({
       type: 'section',
-      text: { type: 'mrkdwn', text: `*Why Canon flagged it:*\n${reason}` },
+      text: { type: 'mrkdwn', text: `*Why Canon flagged this:*\n${reason}` },
     });
   }
   if (excerpt) {
     blocks.push({
       type: 'context',
-      elements: [{ type: 'mrkdwn', text: `_${excerpt}_` }],
+      elements: [{ type: 'mrkdwn', text: `*Proof:* _${excerpt}_` }],
     });
   }
 
@@ -162,11 +170,51 @@ function managerReviewBlocks(params: {
   return blocks;
 }
 
-function notificationCopy(params: {
+export function managerReviewResultBlocks(params: {
+  statusText: string;
+  actor: string;
+  reopenValue?: string;
+}) {
+  const blocks: unknown[] = [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `${params.statusText}\nReviewed by *${params.actor}*.`,
+      },
+    },
+  ];
+
+  if (params.reopenValue) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Reopen step', emoji: true },
+          action_id: 'manager_milestone_unverify',
+          value: params.reopenValue,
+        },
+      ],
+    });
+  }
+
+  return blocks;
+}
+
+function notificationSourceLabel(source: string) {
+  if (source === 'slack') return 'Slack';
+  if (source === 'granola') return 'meeting notes';
+  if (source === 'access_requests') return 'tool access';
+  return 'connected work activity';
+}
+
+export function notificationCopy(params: {
   hireName: string;
   milestoneTitle: string;
   evidenceType: MilestoneEvidenceType;
   verified: boolean;
+  source: string;
 }) {
   if (params.evidenceType === 'new_hire_blocker') {
     return {
@@ -179,16 +227,55 @@ function notificationCopy(params: {
   if (params.verified) {
     return {
       type: 'milestone_auto_verified',
-      title: `${params.hireName} verified for ${params.milestoneTitle}`,
-      body: `Canon found strong proof that ${params.hireName} completed this real-work step.`,
+      title: `${params.hireName} completed "${params.milestoneTitle}"`,
+      body: `Canon found clear proof in ${notificationSourceLabel(params.source)} and marked this learning step complete.`,
     } as const;
   }
 
   return {
     type: 'milestone_needs_review',
-    title: `${params.hireName} has proof to review`,
-    body: `Canon found proof for ${params.milestoneTitle}, but a manager should review it before marking it done.`,
+    title: `${params.hireName} may have completed "${params.milestoneTitle}"`,
+    body: `Canon found possible proof in ${notificationSourceLabel(params.source)}. Please review it before this learning step is marked complete.`,
   } as const;
+}
+
+export function shouldNotifyForMilestoneEvidence(params: {
+  suppressNotification?: boolean;
+  evidenceExists: boolean;
+  currentStatus: CanonicalMilestoneProgressStatus;
+  resolvedStatus: CanonicalMilestoneProgressStatus;
+}) {
+  return !params.suppressNotification && (
+    !params.evidenceExists || params.currentStatus !== params.resolvedStatus
+  );
+}
+
+export function resolveMilestoneEvidenceProgressStatus(params: {
+  currentStatus: CanonicalMilestoneProgressStatus;
+  evidenceType: MilestoneEvidenceType;
+  trustLevel: MilestoneEvidenceTrustLevel;
+  confidence: number;
+  progressStatusOverride?: CanonicalMilestoneProgressStatus;
+  allowVerifiedStatusChange?: boolean;
+}) {
+  if (params.currentStatus === 'verified' && !params.allowVerifiedStatusChange) return 'verified';
+  return params.progressStatusOverride ?? progressStatusForEvidence({
+    currentStatus: params.currentStatus,
+    evidenceType: params.evidenceType,
+    trustLevel: params.trustLevel,
+    confidence: params.confidence,
+  });
+}
+
+export function resolveMilestoneVerifiedAt(params: {
+  resolvedStatus: CanonicalMilestoneProgressStatus;
+  currentVerifiedAt: string | null | undefined;
+  clearVerifiedAt?: boolean;
+  now: string;
+}) {
+  if (params.clearVerifiedAt) return null;
+  if (params.resolvedStatus === 'verified') return params.currentVerifiedAt ?? params.now;
+  return params.currentVerifiedAt ?? null;
 }
 
 export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
@@ -233,23 +320,33 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
     .eq('milestone_id', params.milestoneId)
     .maybeSingle();
 
-  const resolvedStatus = progressStatusForEvidence({
-    currentStatus: existingProgress?.status,
+  const currentStatus = normalizeMilestoneProgressStatus(existingProgress?.status);
+  if (params.requiredCurrentStatus && currentStatus !== params.requiredCurrentStatus) {
+    return { ok: false, error: 'Only verified learning steps can be reopened' };
+  }
+  const resolvedStatus = resolveMilestoneEvidenceProgressStatus({
+    currentStatus,
     evidenceType: params.evidenceType,
     trustLevel: params.trustLevel,
     confidence,
+    progressStatusOverride: params.progressStatusOverride,
+    allowVerifiedStatusChange: params.allowVerifiedStatusChange,
   });
+  const now = new Date().toISOString();
 
   const progressPatch = {
     new_hire_id: params.newHireId,
     milestone_id: params.milestoneId,
     status: resolvedStatus,
     current_confidence: Math.max(existingProgress?.current_confidence ?? 0, confidence),
-    last_evidence_at: new Date().toISOString(),
-    verified_at: resolvedStatus === 'verified'
-      ? existingProgress?.verified_at ?? new Date().toISOString()
-      : existingProgress?.verified_at ?? null,
-    updated_at: new Date().toISOString(),
+    last_evidence_at: now,
+    verified_at: resolveMilestoneVerifiedAt({
+      resolvedStatus,
+      currentVerifiedAt: existingProgress?.verified_at,
+      clearVerifiedAt: params.clearVerifiedAt,
+      now,
+    }),
+    updated_at: now,
   };
 
   const { data: progress, error: progressError } = await params.supabase
@@ -318,6 +415,39 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
       sourceEventId: params.sourceEventId ?? null,
       error: evidenceError?.message ?? 'missing_evidence',
     });
+
+    const rollbackResult = existingProgress
+      ? await params.supabase
+          .from('new_hire_milestone_progress')
+          .update({
+            status: existingProgress.status,
+            current_confidence: existingProgress.current_confidence,
+            last_evidence_at: existingProgress.last_evidence_at,
+            verified_at: existingProgress.verified_at,
+            updated_at: existingProgress.updated_at,
+          })
+          .eq('id', progress.id)
+          .eq('updated_at', progress.updated_at)
+          .select('id')
+          .maybeSingle()
+      : await params.supabase
+          .from('new_hire_milestone_progress')
+          .delete()
+          .eq('id', progress.id)
+          .eq('updated_at', progress.updated_at)
+          .select('id')
+          .maybeSingle();
+
+    if (rollbackResult.error || !rollbackResult.data) {
+      log.error('progress_rollback_failed', {
+        newHireId: params.newHireId,
+        milestoneId: params.milestoneId,
+        evidenceType: params.evidenceType,
+        progressId: progress.id,
+        error: rollbackResult.error?.message ?? 'progress_changed_before_rollback',
+      });
+    }
+
     return { ok: false, error: evidenceError?.message ?? 'Failed to record milestone evidence' };
   }
 
@@ -326,44 +456,55 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
     milestoneTitle: milestone.title,
     evidenceType: params.evidenceType,
     verified: resolvedStatus === 'verified',
+    source: params.source,
   });
 
   const metadata = params.metadata ?? {};
   const slackTargets = uniqueSlackTargets(metadata);
+  const shouldNotify = shouldNotifyForMilestoneEvidence({
+    suppressNotification: params.suppressNotification,
+    evidenceExists: Boolean(existingEvidence),
+    currentStatus,
+    resolvedStatus,
+  });
   let slackBotToken: string | null = null;
-  if (hire.organization_id) {
+  if (shouldNotify && slackTargets.length > 0 && hire.organization_id) {
     const admin = createServiceRoleClient();
     slackBotToken = await getSlackBotTokenForOrganization({ supabase: admin, organizationId: hire.organization_id });
   }
 
-  const slackSent = await maybeSendSlackNotification({
-    botToken: slackBotToken,
-    targets: slackTargets,
-    title: copy.title,
-    body: copy.body,
-    blocks: managerReviewBlocks({
-      title: copy.title,
-      body: copy.body,
-      newHireId: params.newHireId,
-      milestoneId: params.milestoneId,
-      evidenceId: evidence.id,
-      evidenceType: params.evidenceType,
-      verified: resolvedStatus === 'verified',
-      metadata,
-    }),
-  });
+  const slackSent = shouldNotify
+    ? await maybeSendSlackNotification({
+        botToken: slackBotToken,
+        targets: slackTargets,
+        title: copy.title,
+        body: copy.body,
+        blocks: managerReviewBlocks({
+          title: copy.title,
+          body: copy.body,
+          newHireId: params.newHireId,
+          milestoneId: params.milestoneId,
+          evidenceId: evidence.id,
+          evidenceType: params.evidenceType,
+          verified: resolvedStatus === 'verified',
+          metadata,
+        }),
+      })
+    : false;
 
-  const { error: notificationError } = await params.supabase.from('onboarding_notifications').insert({
-    organization_id: hire.organization_id,
-    new_hire_id: params.newHireId,
-    milestone_id: params.milestoneId,
-    type: copy.type,
-    title: copy.title,
-    body: copy.body,
-    delivery_channel: 'app',
-    slack_target: slackTargets[0] ?? null,
-    slack_sent_at: slackSent ? new Date().toISOString() : null,
-  });
+  const { error: notificationError } = shouldNotify
+    ? await params.supabase.from('onboarding_notifications').insert({
+        organization_id: hire.organization_id,
+        new_hire_id: params.newHireId,
+        milestone_id: params.milestoneId,
+        type: copy.type,
+        title: copy.title,
+        body: copy.body,
+        delivery_channel: 'app',
+        slack_target: slackTargets[0] ?? null,
+        slack_sent_at: slackSent ? new Date().toISOString() : null,
+      })
+    : { error: null };
 
   if (notificationError) {
     log.warn('notification_write_failed', {
@@ -390,6 +531,90 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
   });
 
   return { ok: true, progress, evidence, verified: resolvedStatus === 'verified' };
+}
+
+export type ManagerMilestoneDecision = 'verify' | 'keep_open' | 'mark_blocked' | 'unverify';
+
+export function managerMilestoneDecisionConfig(decision: ManagerMilestoneDecision): {
+  evidenceType: MilestoneEvidenceType;
+  trustLevel: MilestoneEvidenceTrustLevel;
+  confidence: number;
+  progressStatusOverride: CanonicalMilestoneProgressStatus;
+  requiredCurrentStatus?: CanonicalMilestoneProgressStatus;
+  allowVerifiedStatusChange?: boolean;
+  clearVerifiedAt?: boolean;
+  statusText: string;
+} {
+  if (decision === 'verify') {
+    return {
+      evidenceType: 'manager_verification' as const,
+      trustLevel: 'high' as const,
+      confidence: 0.95,
+      progressStatusOverride: 'verified' as const,
+      statusText: '*Learning step verified.*',
+    };
+  }
+
+  if (decision === 'mark_blocked') {
+    return {
+      evidenceType: 'new_hire_blocker' as const,
+      trustLevel: 'low' as const,
+      confidence: 0.2,
+      progressStatusOverride: 'blocked' as const,
+      statusText: '*Learning step marked blocked.*',
+    };
+  }
+
+  if (decision === 'unverify') {
+    return {
+      evidenceType: 'manager_reopened' as const,
+      trustLevel: 'high' as const,
+      confidence: 0.95,
+      progressStatusOverride: 'briefed' as const,
+      requiredCurrentStatus: 'verified' as const,
+      allowVerifiedStatusChange: true,
+      clearVerifiedAt: true,
+      statusText: '*Learning step reopened.*',
+    };
+  }
+
+  return {
+    evidenceType: 'communication_activity' as const,
+    trustLevel: 'low' as const,
+    confidence: 0.3,
+    progressStatusOverride: 'briefed' as const,
+    statusText: '*Learning step kept open.*',
+  };
+}
+
+export async function recordManagerMilestoneDecision(params: {
+  supabase: DbClient;
+  newHireId: string;
+  milestoneId: string;
+  decision: ManagerMilestoneDecision;
+  source: 'manager_review' | 'manager_slack_review';
+  sourceEventId: string;
+  metadata?: Record<string, unknown>;
+  createdBy?: string | null;
+}) {
+  const config = managerMilestoneDecisionConfig(params.decision);
+  return recordMilestoneEvidence({
+    supabase: params.supabase,
+    newHireId: params.newHireId,
+    milestoneId: params.milestoneId,
+    evidenceType: config.evidenceType,
+    trustLevel: config.trustLevel,
+    confidence: config.confidence,
+    progressStatusOverride: config.progressStatusOverride,
+    requiredCurrentStatus: config.requiredCurrentStatus,
+    allowVerifiedStatusChange: config.allowVerifiedStatusChange,
+    clearVerifiedAt: config.clearVerifiedAt,
+    source: params.source,
+    sourceEventId: params.sourceEventId,
+    metadata: params.metadata,
+    createdBy: params.createdBy,
+    suppressNotification: true,
+  });
 }
 
 export async function syncAccessReadinessEvidence(params: {

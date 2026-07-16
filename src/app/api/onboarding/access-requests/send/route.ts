@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
     }
 
     await inngest.send({
-      name: 'onboarding/access.request.created',
+      name: INNGEST_EVENTS.ACCESS_REQUEST_CREATED,
       data: { accessRequestId },
     });
 

@@ -1,4 +1,5 @@
 import { inngest } from '../client';
+import { INNGEST_EVENTS, INNGEST_FUNCTION_IDS } from '../constants';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createLogger } from '@/lib/server/logging';
 import { SyncStoppedError } from '@/lib/server/knowledge-sync/errors';
@@ -56,9 +57,9 @@ async function assertSyncStillActive(
   }
 }
 
-export const knowledgeSourceSync = inngest.createFunction(
+export const syncKnowledgeSource = inngest.createFunction(
   {
-    id: 'knowledge-source-sync',
+    id: INNGEST_FUNCTION_IDS.SYNC_KNOWLEDGE_SOURCE,
     name: 'Canon: Sync One Knowledge Source',
     retries: 2,
     concurrency: {
@@ -66,7 +67,7 @@ export const knowledgeSourceSync = inngest.createFunction(
       key: 'event.data.sourceId',
     },
   },
-  { event: 'onboarding/knowledge.sync.requested' },
+  { event: INNGEST_EVENTS.KNOWLEDGE_SYNC_REQUESTED },
   async ({ event, step }) => {
     const data = (event.data ?? {}) as KnowledgeSourceSyncEvent;
     const sourceId = typeof data.sourceId === 'string' ? data.sourceId : '';
@@ -127,7 +128,7 @@ export const knowledgeSourceSync = inngest.createFunction(
 
     if (result?.ok && !result.stopped) {
       await step.sendEvent('queue-milestone-evidence-scan', {
-        name: 'onboarding/milestones.evidence.scan.requested',
+        name: INNGEST_EVENTS.MILESTONE_EVIDENCE_SCAN_REQUESTED,
         data: {
           organizationId,
           sourceId,

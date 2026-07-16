@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
 import { ChevronDown as IconChevronDown, Loader2 as IconLoader2, Search as IconSearch, X as IconX } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
@@ -18,11 +19,13 @@ interface SlackUserPickerProps {
 }
 
 export function SlackUserPicker({ value, onChange, placeholder = 'Search teammates...', disabled }: SlackUserPickerProps) {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState<SlackUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reconnectRequired, setReconnectRequired] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const loaded = useRef(false);
 
@@ -30,11 +33,13 @@ export function SlackUserPicker({ value, onChange, placeholder = 'Search teammat
     if (loaded.current) return;
     setLoading(true);
     setError(null);
+    setReconnectRequired(false);
     try {
       const res = await fetch('/api/onboarding/slack/users');
       const data = (await res.json()) as { users?: SlackUser[]; error?: string; reconnect_required?: boolean };
       if (data.reconnect_required) {
-        setError('Reconnect Slack in Settings → Integrations to enable member lookup.');
+        setReconnectRequired(true);
+        setError('Slack is connected, but Canon still needs access to teammate emails.');
         return;
       }
       if (!res.ok || data.error) {
@@ -137,7 +142,17 @@ export function SlackUserPicker({ value, onChange, placeholder = 'Search teammat
               <IconLoader2 size={13} className="animate-spin" /> Loading members...
             </div>
           ) : error ? (
-            <div className="px-3 py-3 type-body" style={{ color: 'var(--text-tertiary)' }}>{error}</div>
+            <div className="space-y-2 px-3 py-3">
+              <div className="type-body" style={{ color: 'var(--text-tertiary)' }}>{error}</div>
+              {reconnectRequired && (
+                <a
+                  href={`/api/oauth/slack/start?returnTo=${encodeURIComponent(pathname)}`}
+                  className="inline-flex h-8 items-center rounded-[6px] bg-[var(--canon-purple)] px-3 type-caption font-medium text-[var(--text-on-accent)] hover:opacity-90"
+                >
+                  Update Slack access
+                </a>
+              )}
+            </div>
           ) : filtered.length === 0 ? (
             <div className="px-3 py-3 type-body" style={{ color: 'var(--text-tertiary)' }}>
               {query ? 'No members match your search.' : 'No members found.'}

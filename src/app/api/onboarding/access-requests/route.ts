@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { syncAccessReadinessEvidence } from '@/lib/server/milestoneEvidence';
 import { requireWorkspace } from '@/lib/server/organization';
 
@@ -156,7 +157,7 @@ export async function PATCH(request: NextRequest) {
     if (status === 'granted') {
       // Ask the new hire to confirm they've logged in
       await inngest.send({
-        name: 'onboarding/access.granted',
+        name: INNGEST_EVENTS.ACCESS_GRANTED,
         data: { accessRequestId: updated.id },
       });
     }

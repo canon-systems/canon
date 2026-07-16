@@ -57,6 +57,13 @@ export async function GET(
       .eq('new_hire_id', id)
       .order('created_at', { ascending: true });
 
+    const { data: milestoneChecks } = await supabase
+      .from('milestone_check_runs')
+      .select('*')
+      .eq('new_hire_id', id)
+      .order('created_at', { ascending: false })
+      .limit(12);
+
     const { data: milestones } = await supabase
       .from('ramp_milestones')
       .select('*')
@@ -118,6 +125,7 @@ export async function GET(
       access_requests: accessRequests ?? [],
       next_milestone: nextMilestone,
       milestone_path: milestonePath,
+      milestone_checks: milestoneChecks ?? [],
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

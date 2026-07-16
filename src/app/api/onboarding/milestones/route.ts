@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { createLogger } from '@/lib/server/logging';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
-import { normalizeRampTargets } from '@/lib/onboarding/milestone-ramp';
+import {
+  hasMilestoneContentOverlap,
+  type MilestoneContentLike,
+  normalizeMilestoneContentKey,
+  normalizeRampTargets,
+} from '@/lib/onboarding/milestone-ramp';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import type { HireRole, MilestoneEvidenceRequirement } from '@/types/onboarding';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -107,6 +113,20 @@ async function roleTargetRampDays(
   }).targetRampDays;
 }
 
+async function activeRoleCount(
+  supabase: SupabaseClient,
+  organizationId: string
+) {
+  const { count, error } = await supabase
+    .from('role_profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', organizationId)
+    .eq('status', 'active');
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
 async function hasActiveMilestoneOnDay(params: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -151,6 +171,47 @@ async function hasDraftProposalOnDay(params: {
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).length > 0;
+}
+
+async function hasMilestoneContentConflict(params: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  role: string;
+  candidate: MilestoneContentLike;
+  excludeMilestoneId?: string;
+  excludeProposalId?: string;
+}) {
+  let milestoneQuery = params.supabase
+    .from('ramp_milestones')
+    .select('id, title, capability_outcome, briefing_goal, real_work_trigger, success_signals, retrieval_brief, evidence_requirements')
+    .eq('organization_id', params.organizationId)
+    .eq('role', params.role)
+    .eq('status', 'active')
+    .limit(500);
+
+  if (params.excludeMilestoneId) milestoneQuery = milestoneQuery.neq('id', params.excludeMilestoneId);
+
+  let proposalQuery = params.supabase
+    .from('milestone_proposals')
+    .select('id, title, capability_outcome, briefing_goal, real_work_trigger, success_signals, retrieval_brief, evidence_requirements')
+    .eq('organization_id', params.organizationId)
+    .eq('role', params.role)
+    .eq('status', 'draft')
+    .limit(500);
+
+  if (params.excludeProposalId) proposalQuery = proposalQuery.neq('id', params.excludeProposalId);
+
+  const [{ data: milestones, error: milestoneError }, { data: proposals, error: proposalError }] = await Promise.all([
+    milestoneQuery,
+    proposalQuery,
+  ]);
+  if (milestoneError) throw milestoneError;
+  if (proposalError) throw proposalError;
+
+  return hasMilestoneContentOverlap(params.candidate, [
+    ...((milestones ?? []) as MilestoneContentLike[]),
+    ...((proposals ?? []) as MilestoneContentLike[]),
+  ]);
 }
 
 export async function GET(request: NextRequest) {
@@ -229,6 +290,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       action?: string;
       proposal_id?: string;
+      proposal_ids?: unknown;
       role?: string;
       day_trigger?: number;
       title?: string;
@@ -243,6 +305,12 @@ export async function POST(request: NextRequest) {
     };
 
     if (body.action === 'generate') {
+      if ((await activeRoleCount(supabase, organization.id)) === 0) {
+        return NextResponse.json({
+          error: 'Add at least one active role before generating learning steps.',
+        }, { status: 409 });
+      }
+
       const { data: generationRun, error: generationRunError } = await supabase
         .from('milestone_generation_runs')
         .insert({
@@ -256,13 +324,13 @@ export async function POST(request: NextRequest) {
 
       if (generationRunError && isMissingMilestoneGenerationRuns(generationRunError)) {
         const result = await inngest.send({
-          name: 'onboarding/milestones.generate.requested',
+          name: INNGEST_EVENTS.MILESTONE_PROPOSALS_REQUESTED,
           data: { organizationId: organization.id, requestedBy: user.id },
         });
         log.info('generation_requested', {
           userId: user.id,
           organizationId: organization.id,
-          eventName: 'onboarding/milestones.generate.requested',
+          eventName: INNGEST_EVENTS.MILESTONE_PROPOSALS_REQUESTED,
           eventIds: eventIds(result),
           statusTracking: 'unavailable',
         });
@@ -274,14 +342,14 @@ export async function POST(request: NextRequest) {
       }
 
       const result = await inngest.send({
-        name: 'onboarding/milestones.generate.requested',
+        name: INNGEST_EVENTS.MILESTONE_PROPOSALS_REQUESTED,
         data: { organizationId: organization.id, requestedBy: user.id, generationRunId: generationRun.id },
       });
       log.info('generation_requested', {
         userId: user.id,
         organizationId: organization.id,
         generationRunId: generationRun.id,
-        eventName: 'onboarding/milestones.generate.requested',
+        eventName: INNGEST_EVENTS.MILESTONE_PROPOSALS_REQUESTED,
         eventIds: eventIds(result),
       });
       return NextResponse.json({ ok: true, requested: true, generation: generationRun });
@@ -291,7 +359,7 @@ export async function POST(request: NextRequest) {
       if (!body.proposal_id) return NextResponse.json({ error: 'proposal_id is required' }, { status: 400 });
       const { data: currentProposal, error: currentProposalError } = await supabase
         .from('milestone_proposals')
-        .select('id, role, suggested_day_trigger')
+        .select('id, role, suggested_day_trigger, title, capability_outcome, briefing_goal, real_work_trigger, success_signals, retrieval_brief, evidence_requirements')
         .eq('id', body.proposal_id)
         .eq('organization_id', organization.id)
         .eq('status', 'draft')
@@ -336,6 +404,26 @@ export async function POST(request: NextRequest) {
       if (updRetrieval) updates.retrieval_brief = updRetrieval;
       if (Array.isArray(body.success_signals)) updates.success_signals = stringArray(body.success_signals);
 
+      const nextCandidate = {
+        title: updTitle || currentProposal.title,
+        capability_outcome: updCapability || currentProposal.capability_outcome,
+        briefing_goal: updBriefing || currentProposal.briefing_goal,
+        real_work_trigger: updRealWork || currentProposal.real_work_trigger,
+        success_signals: Array.isArray(body.success_signals) ? stringArray(body.success_signals) : currentProposal.success_signals,
+        retrieval_brief: updRetrieval || currentProposal.retrieval_brief,
+        evidence_requirements: currentProposal.evidence_requirements,
+      };
+      if (await hasMilestoneContentConflict({
+        supabase,
+        organizationId: organization.id,
+        role: currentProposal.role,
+        candidate: nextCandidate,
+        excludeProposalId: currentProposal.id,
+      })) {
+        return NextResponse.json({ error: 'This learning step overlaps with an existing milestone or draft for this role' }, { status: 409 });
+      }
+      updates.normalized_key = normalizeMilestoneContentKey(`${nextCandidate.title}-${nextCandidate.real_work_trigger}`);
+
       const { data: proposal, error } = await supabase
         .from('milestone_proposals')
         .update(updates)
@@ -347,6 +435,126 @@ export async function POST(request: NextRequest) {
       if (error || !proposal) return NextResponse.json({ error: 'Proposal not found or already resolved' }, { status: 404 });
       log.debug('proposal_updated', { userId: user.id, organizationId: organization.id, proposalId: proposal.id });
       return NextResponse.json({ proposal });
+    }
+
+    if (body.action === 'reject_proposals') {
+      const proposalIds = Array.from(new Set(stringArray(body.proposal_ids))).slice(0, 100);
+      if (proposalIds.length === 0) return NextResponse.json({ error: 'proposal_ids is required' }, { status: 400 });
+
+      const now = new Date().toISOString();
+      const { data: proposals, error } = await supabase
+        .from('milestone_proposals')
+        .update({ status: 'rejected', rejected_at: now, updated_at: now })
+        .eq('organization_id', organization.id)
+        .eq('status', 'draft')
+        .in('id', proposalIds)
+        .select();
+      if (error) throw error;
+      return NextResponse.json({ proposals: proposals ?? [], rejected: proposals?.length ?? 0 });
+    }
+
+    if (body.action === 'approve_proposals') {
+      const proposalIds = Array.from(new Set(stringArray(body.proposal_ids))).slice(0, 100);
+      if (proposalIds.length === 0) return NextResponse.json({ error: 'proposal_ids is required' }, { status: 400 });
+
+      const { data: proposals, error: proposalsError } = await supabase
+        .from('milestone_proposals')
+        .select('*')
+        .eq('organization_id', organization.id)
+        .eq('status', 'draft')
+        .in('id', proposalIds);
+      if (proposalsError) throw proposalsError;
+
+      const checks = await Promise.all((proposals ?? []).map(async (proposal) => {
+        const dayTrigger = proposal.suggested_day_trigger;
+        const [activeRole, targetRampDays, activeDayConflict, draftDayConflict, contentConflict] = await Promise.all([
+          isActiveRole(supabase, organization.id, proposal.role),
+          roleTargetRampDays(supabase, organization.id, proposal.role),
+          hasActiveMilestoneOnDay({
+            supabase,
+            organizationId: organization.id,
+            role: proposal.role,
+            dayTrigger,
+          }),
+          hasDraftProposalOnDay({
+            supabase,
+            organizationId: organization.id,
+            role: proposal.role,
+            dayTrigger,
+            excludeProposalId: proposal.id,
+          }),
+          hasMilestoneContentConflict({
+            supabase,
+            organizationId: organization.id,
+            role: proposal.role,
+            candidate: proposal,
+            excludeProposalId: proposal.id,
+          }),
+        ]);
+
+        const reason = !activeRole
+          ? 'Role is not active'
+          : !Number.isInteger(dayTrigger) || dayTrigger < 0 || dayTrigger > targetRampDays
+            ? `Day must be between 0 and ${targetRampDays}`
+            : activeDayConflict || draftDayConflict
+              ? `Day ${dayTrigger} already has a learning step`
+              : contentConflict
+                ? 'Overlaps with another learning step'
+                : null;
+        return { proposal, reason };
+      }));
+
+      const approvedCandidates = checks.filter((check) => !check.reason);
+      const now = new Date().toISOString();
+      const { data: milestones, error: milestoneError } = approvedCandidates.length > 0
+        ? await supabase
+            .from('ramp_milestones')
+            .insert(approvedCandidates.map(({ proposal }) => ({
+              organization_id: organization.id,
+              role: proposal.role,
+              day_trigger: proposal.suggested_day_trigger,
+              title: proposal.title,
+              description: proposal.capability_outcome,
+              knowledge_query: proposal.retrieval_brief,
+              capability_outcome: proposal.capability_outcome,
+              briefing_goal: proposal.briefing_goal,
+              real_work_trigger: proposal.real_work_trigger,
+              success_signals: proposal.success_signals,
+              retrieval_brief: proposal.retrieval_brief,
+              evidence_requirements: proposal.evidence_requirements,
+              source_evidence: proposal.source_evidence,
+              confidence: proposal.confidence,
+              status: 'active',
+              approved_from_proposal_id: proposal.id,
+              updated_at: now,
+            })))
+            .select()
+        : { data: [], error: null };
+      if (milestoneError) throw milestoneError;
+
+      const milestoneByProposal = new Map((milestones ?? []).map((milestone) => [milestone.approved_from_proposal_id, milestone]));
+      await Promise.all(approvedCandidates.map(async ({ proposal }) => {
+        const milestone = milestoneByProposal.get(proposal.id);
+        if (!milestone) return;
+        const { error } = await supabase
+          .from('milestone_proposals')
+          .update({
+            status: 'approved',
+            approved_milestone_id: milestone.id,
+            approved_at: now,
+            updated_at: now,
+          })
+          .eq('id', proposal.id)
+          .eq('organization_id', organization.id)
+          .eq('status', 'draft');
+        if (error) throw error;
+      }));
+
+      return NextResponse.json({
+        milestones: milestones ?? [],
+        approved: milestones?.length ?? 0,
+        skipped: checks.filter((check) => check.reason).map((check) => ({ id: check.proposal.id, reason: check.reason })),
+      }, { status: 201 });
     }
 
     if (body.action === 'reject_proposal') {
@@ -391,12 +599,22 @@ export async function POST(request: NextRequest) {
       if (!Number.isInteger(dayTrigger) || dayTrigger < 0 || dayTrigger > targetRampDays) {
         return NextResponse.json({ error: `Day must be between 0 and ${targetRampDays} for this role` }, { status: 400 });
       }
-      if (await hasActiveMilestoneOnDay({
-        supabase,
-        organizationId: organization.id,
-        role: proposal.role,
-        dayTrigger,
-      })) {
+      const [activeDayConflict, draftDayConflict] = await Promise.all([
+        hasActiveMilestoneOnDay({
+          supabase,
+          organizationId: organization.id,
+          role: proposal.role,
+          dayTrigger,
+        }),
+        hasDraftProposalOnDay({
+          supabase,
+          organizationId: organization.id,
+          role: proposal.role,
+          dayTrigger,
+          excludeProposalId: proposal.id,
+        }),
+      ]);
+      if (activeDayConflict || draftDayConflict) {
         return NextResponse.json({ error: `Day ${dayTrigger} already has a learning step for this role` }, { status: 409 });
       }
       const capabilityOutcome = stringField(body.capability_outcome) || proposal.capability_outcome;
@@ -407,6 +625,23 @@ export async function POST(request: NextRequest) {
       const requirements = evidenceRequirements(body.evidence_requirements).length > 0
         ? evidenceRequirements(body.evidence_requirements)
         : proposal.evidence_requirements;
+      if (await hasMilestoneContentConflict({
+        supabase,
+        organizationId: organization.id,
+        role: proposal.role,
+        candidate: {
+          title,
+          capability_outcome: capabilityOutcome,
+          briefing_goal: briefingGoal,
+          real_work_trigger: realWorkTrigger,
+          success_signals: successSignals,
+          retrieval_brief: retrievalBrief,
+          evidence_requirements: requirements,
+        },
+        excludeProposalId: proposal.id,
+      })) {
+        return NextResponse.json({ error: 'This learning step overlaps with an existing milestone or draft for this role' }, { status: 409 });
+      }
 
       const { data: milestone, error: milestoneError } = await supabase
         .from('ramp_milestones')
@@ -482,13 +717,38 @@ export async function POST(request: NextRequest) {
     if (!Number.isInteger(day_trigger) || day_trigger < 0 || day_trigger > targetRampDays) {
       return NextResponse.json({ error: `Day must be between 0 and ${targetRampDays} for this role` }, { status: 400 });
     }
-    if (await hasActiveMilestoneOnDay({
+    const [activeDayConflict, draftDayConflict] = await Promise.all([
+      hasActiveMilestoneOnDay({
+        supabase,
+        organizationId: organization.id,
+        role,
+        dayTrigger: day_trigger,
+      }),
+      hasDraftProposalOnDay({
+        supabase,
+        organizationId: organization.id,
+        role,
+        dayTrigger: day_trigger,
+      }),
+    ]);
+    if (activeDayConflict || draftDayConflict) {
+      return NextResponse.json({ error: `Day ${day_trigger} already has a learning step for this role` }, { status: 409 });
+    }
+    if (await hasMilestoneContentConflict({
       supabase,
       organizationId: organization.id,
       role,
-      dayTrigger: day_trigger,
+      candidate: {
+        title,
+        capability_outcome: capabilityOutcome,
+        briefing_goal: briefingGoal,
+        real_work_trigger: realWorkTrigger,
+        success_signals: stringArray(body.success_signals),
+        retrieval_brief: retrievalBrief,
+        evidence_requirements: requirements,
+      },
     })) {
-      return NextResponse.json({ error: `Day ${day_trigger} already has a learning step for this role` }, { status: 409 });
+      return NextResponse.json({ error: 'This learning step overlaps with an existing milestone or draft for this role' }, { status: 409 });
     }
 
     const { data: milestone, error } = await supabase
@@ -593,14 +853,40 @@ export async function PATCH(request: NextRequest) {
     if (dayTrigger > targetRampDays) {
       return NextResponse.json({ error: `Day must be between 0 and ${targetRampDays} for this role` }, { status: 400 });
     }
-    if (await hasActiveMilestoneOnDay({
+    const [activeDayConflict, draftDayConflict] = await Promise.all([
+      hasActiveMilestoneOnDay({
+        supabase,
+        organizationId: organization.id,
+        role: validationRole,
+        dayTrigger,
+        excludeMilestoneId: milestoneId,
+      }),
+      hasDraftProposalOnDay({
+        supabase,
+        organizationId: organization.id,
+        role: validationRole,
+        dayTrigger,
+      }),
+    ]);
+    if (activeDayConflict || draftDayConflict) {
+      return NextResponse.json({ error: `Day ${dayTrigger} already has a learning step for this role` }, { status: 409 });
+    }
+    if (await hasMilestoneContentConflict({
       supabase,
       organizationId: organization.id,
       role: validationRole,
-      dayTrigger,
+      candidate: {
+        title,
+        capability_outcome: capabilityOutcome,
+        briefing_goal: briefingGoal,
+        real_work_trigger: realWorkTrigger,
+        success_signals: stringArray(body.success_signals),
+        retrieval_brief: retrievalBrief,
+        evidence_requirements: evidenceRequirements(body.evidence_requirements),
+      },
       excludeMilestoneId: milestoneId,
     })) {
-      return NextResponse.json({ error: `Day ${dayTrigger} already has a learning step for this role` }, { status: 409 });
+      return NextResponse.json({ error: 'This learning step overlaps with an existing milestone or draft for this role' }, { status: 409 });
     }
 
     const { data: milestone, error } = await supabase
@@ -649,30 +935,35 @@ export async function DELETE(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { supabase, organization } = await requireWorkspaceAdmin(user);
 
-    const body = (await request.json().catch(() => ({}))) as { milestone_id?: string };
-    const milestoneId = stringField(body.milestone_id) || stringField(request.nextUrl.searchParams.get('id'));
-    if (!milestoneId) return NextResponse.json({ error: 'milestone_id is required' }, { status: 400 });
+    const body = (await request.json().catch(() => ({}))) as { milestone_id?: string; milestone_ids?: unknown };
+    const milestoneIds = Array.from(new Set([
+      stringField(body.milestone_id),
+      stringField(request.nextUrl.searchParams.get('id')),
+      ...stringArray(body.milestone_ids),
+    ].filter(Boolean))).slice(0, 100);
+    if (milestoneIds.length === 0) return NextResponse.json({ error: 'milestone_id is required' }, { status: 400 });
 
-    const { data: milestone, error } = await supabase
+    const { data: milestones, error } = await supabase
       .from('ramp_milestones')
       .update({ status: 'archived', updated_at: new Date().toISOString() })
-      .eq('id', milestoneId)
+      .in('id', milestoneIds)
       .eq('organization_id', organization.id)
       .eq('status', 'active')
-      .select('id, role, day_trigger')
-      .single();
+      .select('id, role, day_trigger');
 
-    if (error || !milestone) return NextResponse.json({ error: 'Milestone not found or already removed' }, { status: 404 });
+    if (error) throw error;
+    if ((milestones?.length ?? 0) !== milestoneIds.length) {
+      return NextResponse.json({ error: 'One or more learning steps were not found or already removed' }, { status: 404 });
+    }
 
     log.info('milestone_archived', {
       userId: user.id,
       organizationId: organization.id,
-      milestoneId: milestone.id,
-      role: milestone.role,
-      dayTrigger: milestone.day_trigger,
+      milestoneIds,
+      count: milestones?.length ?? 0,
     });
 
-    return NextResponse.json({ milestone });
+    return NextResponse.json({ milestone: milestones?.[0] ?? null, milestones: milestones ?? [], count: milestones?.length ?? 0 });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/milestones] DELETE failed', error);

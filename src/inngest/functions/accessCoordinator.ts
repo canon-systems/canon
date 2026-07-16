@@ -1,4 +1,5 @@
 import { inngest } from '../client';
+import { INNGEST_EVENTS, INNGEST_FUNCTION_IDS } from '../constants';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { getSlackBotTokenForOrganization, postSlackDm } from '@/lib/server/slack/transport';
@@ -93,13 +94,13 @@ async function sendAccessRequestDM(params: {
   return data;
 }
 
-export const accessCoordinator = inngest.createFunction(
+export const notifyToolOwnerForAccessRequest = inngest.createFunction(
   {
-    id: 'access-coordinator',
+    id: INNGEST_FUNCTION_IDS.NOTIFY_TOOL_OWNER_FOR_ACCESS_REQUEST,
     name: 'Canon: DM Tool Owner for Access Request',
     retries: 2,
   },
-  { event: 'onboarding/access.request.created' },
+  { event: INNGEST_EVENTS.ACCESS_REQUEST_CREATED },
   async ({ event, step }) => {
     const data = (event.data ?? {}) as AccessRequestCreatedEvent;
     const accessRequestId = typeof data.accessRequestId === 'string' ? data.accessRequestId : '';

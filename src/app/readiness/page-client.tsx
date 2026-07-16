@@ -15,8 +15,10 @@ import {
   MoreVertical as IconDotsVertical,
   Pencil as IconPencil,
   Radar as IconRadar,
+  RefreshCw as IconRefresh,
   Send as IconSend,
   ShieldCheck as IconShieldCheck,
+  Trash2 as IconTrash,
   Users as IconUsers,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -35,6 +37,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge, type BadgeVariant } from '@/components/ui/status-badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/components/ui/utils';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import type { KnowledgeSource, ReadinessBrief, ReadinessCategory, ReadinessItem, ReadinessStatus } from '@/types/onboarding';
@@ -93,6 +96,62 @@ type DeliveryTargetOption = DeliveryTarget & {
 type IntegrationConnection = {
   provider: string;
   status: string;
+};
+
+type ReadinessDeleteRequest = {
+  items: Array<Pick<ReadinessItem, 'id' | 'title'>>;
+};
+
+type ReadinessResponse = {
+  brief?: ReadinessBrief | null;
+  permissions?: { can_delete_signals?: boolean };
+};
+
+type MeetingBriefingsResponse = {
+  calendar: {
+    connected: boolean;
+    lastSyncedAt: string | null;
+    providers: Array<{
+      provider: 'google_calendar' | 'outlook';
+      label: string;
+      connected: boolean;
+      syncStatus: string;
+      lastSyncedAt: string | null;
+      error: string | null;
+    }>;
+  };
+  summary: {
+    upcoming: number;
+    delivered: number;
+    needsAttention: number;
+  };
+  upcoming: Array<{
+    id: string;
+    provider: 'google_calendar' | 'outlook';
+    providerLabel: string;
+    title: string;
+    startAt: string;
+    endAt: string | null;
+    meetingUrl: string | null;
+    customerDomain: string | null;
+    briefingStatus: 'waiting' | 'pending' | 'delivered' | 'skipped' | 'failed';
+    recipients: string[];
+  }>;
+  history: Array<{
+    id: string;
+    meetingId: string;
+    meetingTitle: string;
+    meetingStartAt: string;
+    recipient: string;
+    status: 'pending' | 'delivered' | 'skipped' | 'failed';
+    reason: string | null;
+    briefText: string | null;
+    attempts: number;
+    deliveredAt: string | null;
+    lastAttemptAt: string | null;
+    permalink: string | null;
+  }>;
+  permissions: { canSync: boolean };
 };
 
 const deliveryProviders = ['slack'] as const satisfies readonly DeliveryProvider[];
@@ -177,6 +236,22 @@ function formatTimestamp(value: string | null) {
   }).format(new Date(value));
 }
 
+function briefingBadge(status: string): { variant: BadgeVariant; label: string } {
+  if (status === 'delivered' || status === 'ready') return { variant: 'delivered', label: status === 'ready' ? 'Synced' : 'Delivered' };
+  if (status === 'failed' || status === 'needs_attention') return { variant: 'error', label: 'Needs Attention' };
+  if (status === 'skipped') return { variant: 'completed', label: 'No Brief Needed' };
+  if (status === 'syncing' || status === 'pending') return { variant: 'pending', label: status === 'syncing' ? 'Refreshing' : 'Preparing' };
+  return { variant: 'upcoming', label: 'Waiting' };
+}
+
+function briefingReason(reason: string | null) {
+  if (!reason) return null;
+  if (reason === 'no_related_readiness_context' || reason === 'thin_context' || reason === 'empty_brief') {
+    return 'No useful meeting context was found.';
+  }
+  return 'Canon could not send this briefing.';
+}
+
 function preventionText(item: ReadinessItem | null) {
   if (!item) return 'Select an update to see what Canon should help prevent.';
   if (item.category === 'customer_objection') return 'Inconsistent customer answers and late-stage deal hesitation.';
@@ -243,10 +318,13 @@ export function ReadinessClient() {
   const [activeCategories, setActiveCategories] = useState<ReadinessCategory[]>(categories.map((category) => category.id));
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [selectedSignalIds, setSelectedSignalIds] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<'signals' | 'delivery'>('signals');
+  const [activeTab, setActiveTab] = useState<'signals' | 'delivery' | 'briefings'>('signals');
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [rowActionId, setRowActionId] = useState<string | null>(null);
+  const [deleteRequest, setDeleteRequest] = useState<ReadinessDeleteRequest | null>(null);
+  const [deletingSignals, setDeletingSignals] = useState(false);
+  const [canDeleteSignals, setCanDeleteSignals] = useState(false);
   const [knownDeliveryTargetOptions, setKnownDeliveryTargetOptions] = useState<DeliveryTargetOption[]>([]);
   const [targetOptionsReconnectRequired, setTargetOptionsReconnectRequired] = useState(false);
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
@@ -257,8 +335,29 @@ export function ReadinessClient() {
   const [digestHourUtc, setDigestHourUtc] = useState(13);
   const [meetingPrepEnabled, setMeetingPrepEnabled] = useState(true);
   const [meetingPrepMinutesBefore, setMeetingPrepMinutesBefore] = useState(45);
+  const [meetingBriefings, setMeetingBriefings] = useState<MeetingBriefingsResponse | null>(null);
+  const [loadingMeetingBriefings, setLoadingMeetingBriefings] = useState(true);
+  const [refreshingCalendar, setRefreshingCalendar] = useState(false);
   const [savingDeliverySettings, setSavingDeliverySettings] = useState(false);
   const [selectedDeliveryProvider, setSelectedDeliveryProvider] = useState<DeliveryProvider | null>(null);
+
+  function applyReadinessItems(updatedItems: ReadinessItem[]) {
+    const updates = new Map(updatedItems.map((item) => [item.id, item]));
+    setBrief((current) => current ? {
+      ...current,
+      items: current.items
+        .map((item) => updates.get(item.id) ?? item)
+        .filter((item) => item.status !== 'archived'),
+    } : current);
+  }
+
+  function removeReadinessItems(itemIds: string[]) {
+    const removed = new Set(itemIds);
+    setBrief((current) => current ? {
+      ...current,
+      items: current.items.filter((item) => !removed.has(item.id)),
+    } : current);
+  }
 
   async function generateSignals() {
     setGenerating(true);
@@ -282,7 +381,7 @@ export function ReadinessClient() {
           attempts++;
           try {
             const res = await fetch('/api/onboarding/readiness');
-            const data = (await res.json()) as { brief?: ReadinessBrief | null };
+            const data = (await res.json()) as ReadinessResponse;
             const next = data.brief;
             const newestUpdate = Math.max(
               ...(next?.items ?? []).map((item) => new Date(item.updated_at || item.detected_at || item.created_at).getTime()),
@@ -291,6 +390,7 @@ export function ReadinessClient() {
             if (newestUpdate >= requestedAt || attempts >= 20) {
               clearInterval(interval);
               setBrief(next ?? null);
+              setCanDeleteSignals(data.permissions?.can_delete_signals === true);
               if (newestUpdate >= requestedAt) {
                 toast.success('Readiness updates are ready to review');
               }
@@ -309,15 +409,18 @@ export function ReadinessClient() {
     }
   }
 
-  async function loadReadiness() {
+  async function loadMeetingBriefings() {
     try {
-      const res = await fetch('/api/onboarding/readiness');
-      const data = (await res.json()) as { brief?: ReadinessBrief | null };
-      setBrief(data.brief ?? null);
+      const response = await fetch('/api/onboarding/readiness/meeting-prep');
+      const data = (await response.json()) as MeetingBriefingsResponse & { error?: string; detail?: string };
+      if (!response.ok) throw new Error(data.detail || data.error || 'Failed to load meeting briefings');
+      setMeetingBriefings(data);
+      return data;
     } catch {
-      setBrief(null);
+      setMeetingBriefings(null);
+      return null;
     } finally {
-      setLoading(false);
+      setLoadingMeetingBriefings(false);
     }
   }
 
@@ -330,12 +433,14 @@ export function ReadinessClient() {
           fetch('/api/onboarding/readiness'),
           fetch('/api/onboarding/knowledge'),
         ]);
-        const data = (await readinessRes.json()) as { brief?: ReadinessBrief | null };
+        const data = (await readinessRes.json()) as ReadinessResponse;
         const knowledgeData = (await knowledgeRes.json()) as { sources?: KnowledgeSource[] };
         if (!cancelled) setBrief(data.brief ?? null);
+        if (!cancelled) setCanDeleteSignals(data.permissions?.can_delete_signals === true);
         if (!cancelled) setHasKnowledgeSources((knowledgeData.sources ?? []).length > 0);
       } catch {
         if (!cancelled) setBrief(null);
+        if (!cancelled) setCanDeleteSignals(false);
         if (!cancelled) setHasKnowledgeSources(false);
       } finally {
         if (!cancelled) setLoading(false);
@@ -347,6 +452,10 @@ export function ReadinessClient() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    void loadMeetingBriefings();
   }, []);
 
   useEffect(() => {
@@ -383,10 +492,10 @@ export function ReadinessClient() {
         .map((connection) => connection.provider as DeliveryProvider));
       let nextChannelIds: string[] = [];
       let nextCustomTargets: DeliveryTarget[] = [];
-
       if (settingsResult.status === 'fulfilled' && settingsResult.value.settings) {
         nextChannelIds = settingsResult.value.settings.channelIds ?? [];
-        nextCustomTargets = (settingsResult.value.settings.targets ?? [])
+        const savedTargets = settingsResult.value.settings.targets ?? [];
+        nextCustomTargets = savedTargets
           .filter((target) => target.provider !== 'slack' && target.enabled)
           .map((target) => ({
             provider: target.provider,
@@ -506,6 +615,9 @@ export function ReadinessClient() {
     [knownDeliveryTargetOptions]
   );
   const hasDeliveryTargets = deliveryTargets.length > 0;
+  const meetingPrepReady = activeProviderConnected && Boolean(meetingBriefings?.calendar.connected);
+  const deliverySettingsReady = (!weeklyDigestEnabled || hasDeliveryTargets)
+    && (!meetingPrepEnabled || meetingPrepReady);
   const allCategoriesSelected = activeCategories.length === categories.length;
   const filterLabel = selectedCategoryLabel(activeCategories);
   const selectedSignalCount = selectedSignalIds.size;
@@ -528,7 +640,7 @@ export function ReadinessClient() {
     ? `${digestWeekdayLabel}, ${digestHourUtc}:00 UTC`
     : 'Off';
   const meetingPrepSummary = meetingPrepEnabled
-    ? `${meetingPrepMinutesBefore} Min Before`
+    ? `${meetingPrepMinutesBefore} Min`
     : 'Off';
   const weeklyDigestStatus = weeklyDigestEnabled ? 'On' : 'Off';
   const meetingPrepStatus = meetingPrepEnabled ? 'On' : 'Off';
@@ -567,9 +679,9 @@ export function ReadinessClient() {
           targets: deliveryTargets,
         }),
       });
-      const data = (await res.json()) as { error?: string; detail?: string };
+      const data = (await res.json()) as { error?: string; detail?: string; items?: ReadinessItem[] };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send readiness update');
-      await loadReadiness();
+      applyReadinessItems(data.items ?? []);
       setSelectedItemId(item.id);
       toast.success('Signal sent');
     } catch (error) {
@@ -587,15 +699,55 @@ export function ReadinessClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: item.id, status }),
       });
-      const data = (await res.json()) as { error?: string; detail?: string };
+      const data = (await res.json()) as { error?: string; detail?: string; items?: ReadinessItem[] };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update readiness item');
-      await loadReadiness();
+      applyReadinessItems(data.items ?? []);
       setSelectedItemId(status === 'archived' ? null : item.id);
       const label = status === 'archived' ? 'Signal archived' : status === 'reviewed' ? 'Marked as reviewed' : 'Status updated';
       toast.success(label);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to update readiness item');
     } finally {
+      setRowActionId(null);
+    }
+  }
+
+  function requestSignalDelete(item: ReadinessItem) {
+    setDeleteRequest({ items: [{ id: item.id, title: item.title }] });
+  }
+
+  function requestSelectedSignalDelete() {
+    const selectedItems = categoryItems
+      .filter((item) => selectedSignalIds.has(item.id))
+      .map(({ id, title }) => ({ id, title }));
+    if (selectedItems.length > 0) setDeleteRequest({ items: selectedItems });
+  }
+
+  async function confirmSignalDelete() {
+    if (!deleteRequest || deleteRequest.items.length === 0) return;
+    const itemIds = deleteRequest.items.map((item) => item.id);
+    const deletedIdSet = new Set(itemIds);
+    setDeletingSignals(true);
+    setRowActionId(itemIds.length === 1 ? itemIds[0] : 'bulk');
+    try {
+      const res = await fetch('/api/onboarding/readiness', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemIds }),
+      });
+      const data = (await res.json()) as { error?: string; detail?: string; count?: number };
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to delete readiness signal');
+
+      setSelectedSignalIds((current) => new Set(Array.from(current).filter((id) => !deletedIdSet.has(id))));
+      setSelectedItemId((current) => current && deletedIdSet.has(current) ? null : current);
+      setDeleteRequest(null);
+      removeReadinessItems(itemIds);
+      const count = data.count ?? itemIds.length;
+      toast.success(count === 1 ? 'Readiness signal deleted' : `${count} readiness signals deleted`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete readiness signal');
+    } finally {
+      setDeletingSignals(false);
       setRowActionId(null);
     }
   }
@@ -625,6 +777,7 @@ export function ReadinessClient() {
       });
       const data = (await res.json()) as { error?: string; detail?: string };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to save delivery settings');
+      await loadMeetingBriefings();
       toast.success('Delivery settings saved');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save delivery settings');
@@ -714,6 +867,30 @@ export function ReadinessClient() {
     )));
   }
 
+  async function refreshCalendar() {
+    setRefreshingCalendar(true);
+    try {
+      const response = await fetch('/api/onboarding/readiness/meeting-prep', { method: 'POST' });
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+        synced?: number;
+        needsAttention?: number;
+      };
+      if (!response.ok) throw new Error(data.detail || data.error || 'Canon could not refresh the calendar.');
+      await loadMeetingBriefings();
+      if ((data.needsAttention ?? 0) > 0) {
+        toast.error('One calendar needs attention. Canon will try again automatically.');
+      } else {
+        toast.success((data.synced ?? 0) > 0 ? 'Calendar events refreshed' : 'Calendar is up to date');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Canon could not refresh the calendar.');
+    } finally {
+      setRefreshingCalendar(false);
+    }
+  }
+
   function toggleSignalSelection(signalId: string) {
     setSelectedSignalIds((current) => {
       const next = new Set(current);
@@ -750,9 +927,9 @@ export function ReadinessClient() {
           targets: deliveryTargets,
         }),
       });
-      const data = (await res.json()) as { error?: string; detail?: string };
+      const data = (await res.json()) as { error?: string; detail?: string; items?: ReadinessItem[] };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send selected updates');
-      await loadReadiness();
+      applyReadinessItems(data.items ?? []);
       setSelectedSignalIds(new Set());
       setSelectedItemId(null);
       toast.success(itemIds.length === 1 ? 'Update sent' : `${itemIds.length} updates sent`);
@@ -775,10 +952,10 @@ export function ReadinessClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemIds, status }),
       });
-      const data = (await res.json()) as { error?: string; detail?: string };
+      const data = (await res.json()) as { error?: string; detail?: string; items?: ReadinessItem[] };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update selected items');
 
-      await loadReadiness();
+      applyReadinessItems(data.items ?? []);
       setSelectedSignalIds(new Set());
       if (status === 'archived') setSelectedItemId(null);
       const count = selectedItems.length;
@@ -800,7 +977,7 @@ export function ReadinessClient() {
           <Skeleton className="h-8 w-44 bg-[var(--bg-primary)]" />
         </div>
         <div className="flex flex-1 overflow-hidden">
-          <div className="split-sidebar w-[340px] flex-shrink-0 border-r flex flex-col gap-3 p-4">
+          <div className="split-sidebar w-[280px] flex-shrink-0 border-r flex flex-col gap-3 p-4">
             <Skeleton className="h-8 bg-[var(--bg-primary)]" />
             {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-14 rounded-[8px] bg-[var(--bg-primary)]" />)}
           </div>
@@ -826,13 +1003,10 @@ export function ReadinessClient() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Left sidebar — signal list + delivery settings */}
-        <div className={cn(
-          'split-sidebar flex-shrink-0 border-r flex flex-col overflow-hidden',
-          activeTab === 'delivery' ? 'w-[280px]' : 'w-[340px]'
-        )}>
+        <div className="split-sidebar flex w-[280px] flex-shrink-0 flex-col overflow-hidden border-r">
           <Tabs
             value={activeTab}
-            onValueChange={(v) => setActiveTab(v as 'signals' | 'delivery')}
+            onValueChange={(v) => setActiveTab(v as 'signals' | 'delivery' | 'briefings')}
             className="flex flex-col flex-1 min-h-0"
           >
             <div
@@ -845,54 +1019,53 @@ export function ReadinessClient() {
                   <span className="ml-1.5 type-caption opacity-60">{items.length}</span>
                 </TabsTrigger>
                 <TabsTrigger value="delivery">Delivery</TabsTrigger>
+                <TabsTrigger value="briefings">Briefings</TabsTrigger>
               </TabsList>
-              {activeTab === 'signals' && (
-                <div className="ml-auto pr-3">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-7 w-[148px] justify-between shrink-0">
-                        <span className="truncate">{filterLabel}</span>
-                        <IconChevronDown size={13} />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem
-                          role="menuitemcheckbox"
-                          aria-checked={allCategoriesSelected}
-                          onSelect={(e) => { e.preventDefault(); setActiveCategories(allCategoriesSelected ? [] : categories.map((c) => c.id)); }}
-                        >
-                          <span className="flex h-4 w-4 items-center justify-center">
-                            {allCategoriesSelected && <IconCheck size={13} />}
-                          </span>
-                          <span className="flex-1">All</span>
-                          <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{items.length}</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuGroup>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuGroup>
-                        {categories.map((category) => (
-                          <DropdownMenuItem
-                            key={category.id}
-                            role="menuitemcheckbox"
-                            aria-checked={activeCategories.includes(category.id)}
-                            onSelect={(e) => { e.preventDefault(); toggleCategory(category.id); }}
-                          >
-                            <span className="flex h-4 w-4 items-center justify-center">
-                              {activeCategories.includes(category.id) && <IconCheck size={13} />}
-                            </span>
-                            <span className="flex-1">{category.label}</span>
-                            <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{categoryCounts.get(category.id) ?? 0}</span>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              )}
             </div>
 
             <TabsContent value="signals" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+              <div className="shrink-0 border-b px-[14px] py-2" style={{ borderColor: 'var(--border-tertiary)' }}>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 w-full justify-between">
+                      <span className="truncate">Category: {filterLabel}</span>
+                      <IconChevronDown size={13} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-[310px]">
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        role="menuitemcheckbox"
+                        aria-checked={allCategoriesSelected}
+                        onSelect={(e) => { e.preventDefault(); setActiveCategories(allCategoriesSelected ? [] : categories.map((c) => c.id)); }}
+                      >
+                        <span className="flex h-4 w-4 items-center justify-center">
+                          {allCategoriesSelected && <IconCheck size={13} />}
+                        </span>
+                        <span className="flex-1">All</span>
+                        <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{items.length}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      {categories.map((category) => (
+                        <DropdownMenuItem
+                          key={category.id}
+                          role="menuitemcheckbox"
+                          aria-checked={activeCategories.includes(category.id)}
+                          onSelect={(e) => { e.preventDefault(); toggleCategory(category.id); }}
+                        >
+                          <span className="flex h-4 w-4 items-center justify-center">
+                            {activeCategories.includes(category.id) && <IconCheck size={13} />}
+                          </span>
+                          <span className="flex-1">{category.label}</span>
+                          <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{categoryCounts.get(category.id) ?? 0}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
               {/* Bulk action toolbar */}
               <div
                 className="sticky top-0 z-10 border-b px-[14px] py-[10px] shrink-0"
@@ -968,13 +1141,29 @@ export function ReadinessClient() {
                             onClick={() => void updateSelectedSignalStatus('archived')}
                             disabled={rowActionId === 'bulk'}
                             aria-label="Archive selected updates"
-                            className="text-[var(--red)] hover:text-[var(--red)]"
                           >
                             <IconArchive size={14} />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent side="bottom">Archive selected updates</TooltipContent>
                       </Tooltip>
+                      {canDeleteSignals && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={requestSelectedSignalDelete}
+                              disabled={rowActionId === 'bulk'}
+                              aria-label="Delete selected readiness signals"
+                              className="text-[var(--red-text)] hover:text-[var(--red-text)]"
+                            >
+                              <IconTrash size={14} />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Delete selected signals</TooltipContent>
+                        </Tooltip>
+                      )}
                     </TooltipProvider>
                   ) : (
                     <Button
@@ -1082,6 +1271,19 @@ export function ReadinessClient() {
                               Archive
                             </DropdownMenuItem>
                           </DropdownMenuGroup>
+                          {canDeleteSignals && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onSelect={() => requestSignalDelete(item)}
+                                disabled={rowActionId === item.id || rowActionId === 'bulk'}
+                                className="text-[var(--red-text)] focus:text-[var(--red-text)]"
+                              >
+                                <IconTrash size={14} />
+                                Delete permanently
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -1118,17 +1320,228 @@ export function ReadinessClient() {
                 </Alert>
               )}
             </TabsContent>
+
+            <TabsContent value="briefings" className="m-0 flex-1 p-3">
+              {loadingMeetingBriefings ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-20 w-full" />
+                  <Skeleton className="h-24 w-full" />
+                </div>
+              ) : !meetingBriefings?.calendar.connected ? (
+                <Alert>
+                  <IconCalendar size={15} />
+                  <AlertTitle>Calendar Not Connected</AlertTitle>
+                  <AlertDescription>Connect Google Calendar or Outlook in Settings.</AlertDescription>
+                </Alert>
+              ) : (
+                <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)]">
+                  {[
+                    { label: 'Calendar', value: meetingBriefings.calendar.lastSyncedAt ? formatTimestamp(meetingBriefings.calendar.lastSyncedAt) : 'Waiting For First Refresh' },
+                    { label: 'Upcoming', value: String(meetingBriefings.summary.upcoming) },
+                    { label: 'Delivered', value: String(meetingBriefings.summary.delivered) },
+                    { label: 'Needs Attention', value: String(meetingBriefings.summary.needsAttention) },
+                  ].map((item, index) => (
+                    <div
+                      key={item.label}
+                      className={cn(
+                        'flex items-center justify-between gap-3 px-3 py-2',
+                        index > 0 && 'border-t border-[var(--border-tertiary)]'
+                      )}
+                    >
+                      <div className="type-caption text-[var(--text-tertiary)]">{item.label}</div>
+                      <div className="min-w-0 truncate text-right type-caption font-medium text-[var(--text-primary)]">{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
           </Tabs>
         </div>
 
         {/* Right panel — signal detail */}
         <div className="surface-page flex-1 min-w-0 flex flex-col overflow-hidden">
-          {activeTab === 'delivery' ? (
+          {activeTab === 'briefings' ? (
             <>
               <div className="detail-page-header border-b px-7 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <StatusBadge variant={hasDeliveryTargets ? 'delivered' : 'pending'} label={hasDeliveryTargets ? 'Ready' : 'Needs Target'} />
+                    <StatusBadge
+                      variant={meetingBriefings?.calendar.connected ? 'delivered' : 'pending'}
+                      label={meetingBriefings?.calendar.connected ? 'Calendar Connected' : 'Calendar Needed'}
+                    />
+                    <h2 className="type-section-title text-[var(--text-primary)]">Meeting Briefings</h2>
+                  </div>
+                  {meetingBriefings?.permissions.canSync && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void refreshCalendar()}
+                      disabled={refreshingCalendar || !meetingBriefings.calendar.connected}
+                    >
+                      <IconRefresh size={14} className={refreshingCalendar ? 'animate-spin' : undefined} />
+                      {refreshingCalendar ? 'Refreshing...' : 'Refresh Calendar'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {loadingMeetingBriefings ? (
+                  <div className="space-y-3 px-7 py-5">
+                    <Skeleton className="h-20 w-full" />
+                    <Skeleton className="h-40 w-full" />
+                  </div>
+                ) : !meetingBriefings ? (
+                  <div className="px-7 py-5">
+                    <Alert>
+                      <IconCalendar size={15} />
+                      <AlertTitle>Briefings Unavailable</AlertTitle>
+                      <AlertDescription>Canon could not load meeting briefings. Refresh the page to try again.</AlertDescription>
+                    </Alert>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid border-b border-[var(--border-tertiary)] sm:grid-cols-3">
+                      {[
+                        { label: 'Upcoming Meetings', value: meetingBriefings.summary.upcoming },
+                        { label: 'Briefings Delivered', value: meetingBriefings.summary.delivered },
+                        { label: 'Needs Attention', value: meetingBriefings.summary.needsAttention },
+                      ].map((item, index) => (
+                        <div
+                          key={item.label}
+                          className={cn(
+                            'px-7 py-4',
+                            index > 0 && 'border-t border-[var(--border-tertiary)] sm:border-l sm:border-t-0'
+                          )}
+                        >
+                          <div className="type-detail-title tabular-nums text-[var(--text-primary)]">{item.value}</div>
+                          <div className="mt-1 type-caption text-[var(--text-tertiary)]">{item.label}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <section className="border-b border-[var(--border-tertiary)] px-7 py-5" aria-labelledby="calendar-health-heading">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <h3 id="calendar-health-heading" className="type-panel-title text-[var(--text-primary)]">Calendar</h3>
+                        <span className="type-caption text-[var(--text-tertiary)]">
+                          {meetingBriefings.calendar.lastSyncedAt
+                            ? `Last refreshed ${formatTimestamp(meetingBriefings.calendar.lastSyncedAt)}`
+                            : 'Waiting for first refresh'}
+                        </span>
+                      </div>
+                      {meetingBriefings.calendar.providers.length === 0 ? (
+                        <Alert>
+                          <IconCalendar size={15} />
+                          <AlertTitle>Calendar Not Connected</AlertTitle>
+                          <AlertDescription>Connect Google Calendar or Outlook in Settings.</AlertDescription>
+                        </Alert>
+                      ) : (
+                        <div className="divide-y divide-[var(--border-tertiary)] border-y border-[var(--border-tertiary)]">
+                          {meetingBriefings.calendar.providers.map((provider) => {
+                            const status = briefingBadge(provider.syncStatus);
+                            return (
+                              <div key={provider.provider} className="flex flex-wrap items-center gap-3 py-3">
+                                <IntegrationLogos provider={provider.provider} size={18} />
+                                <div className="min-w-0 flex-1">
+                                  <div className="type-body-strong text-[var(--text-primary)]">{provider.label}</div>
+                                  <div className="type-caption text-[var(--text-tertiary)]">
+                                    {provider.error
+                                      ? 'Reconnect or refresh this calendar.'
+                                      : provider.lastSyncedAt
+                                        ? `Refreshed ${formatTimestamp(provider.lastSyncedAt)}`
+                                        : 'Waiting for first refresh'}
+                                  </div>
+                                </div>
+                                <StatusBadge variant={status.variant} label={status.label} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </section>
+
+                    <section className="border-b border-[var(--border-tertiary)] px-7 py-5" aria-labelledby="upcoming-briefings-heading">
+                      <h3 id="upcoming-briefings-heading" className="mb-3 type-panel-title text-[var(--text-primary)]">Upcoming</h3>
+                      {meetingBriefings.upcoming.length === 0 ? (
+                        <div className="type-body text-[var(--text-tertiary)]">No meetings are scheduled in the next 14 days.</div>
+                      ) : (
+                        <div className="divide-y divide-[var(--border-tertiary)] border-y border-[var(--border-tertiary)]">
+                          {meetingBriefings.upcoming.map((meeting) => {
+                            const status = briefingBadge(meeting.briefingStatus);
+                            return (
+                              <div key={meeting.id} className="flex flex-wrap items-center gap-3 py-3">
+                                <div className="w-[118px] shrink-0">
+                                  <div className="type-body-strong text-[var(--text-primary)]">{formatTimestamp(meeting.startAt)}</div>
+                                  <div className="type-caption text-[var(--text-tertiary)]">{meeting.providerLabel}</div>
+                                </div>
+                                <div className="min-w-[180px] flex-1">
+                                  <div className="truncate type-body-strong text-[var(--text-primary)]">{meeting.title}</div>
+                                  {meeting.recipients.length > 0 && (
+                                    <div className="truncate type-caption text-[var(--text-tertiary)]">
+                                      {meeting.recipients.join(', ')}
+                                    </div>
+                                  )}
+                                </div>
+                                <StatusBadge variant={status.variant} label={status.label} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </section>
+
+                    <section className="px-7 py-5" aria-labelledby="recent-briefings-heading">
+                      <h3 id="recent-briefings-heading" className="mb-3 type-panel-title text-[var(--text-primary)]">Recent Briefings</h3>
+                      {meetingBriefings.history.length === 0 ? (
+                        <div className="type-body text-[var(--text-tertiary)]">No meeting briefings have been prepared yet.</div>
+                      ) : (
+                        <div className="divide-y divide-[var(--border-tertiary)] border-y border-[var(--border-tertiary)]">
+                          {meetingBriefings.history.map((briefing) => {
+                            const status = briefingBadge(briefing.status);
+                            const reason = briefingReason(briefing.reason);
+                            return (
+                              <details key={briefing.id} className="group py-3">
+                                <summary className="flex cursor-pointer list-none flex-wrap items-center gap-3">
+                                  <div className="min-w-[180px] flex-1">
+                                    <div className="truncate type-body-strong text-[var(--text-primary)]">{briefing.meetingTitle}</div>
+                                    <div className="type-caption text-[var(--text-tertiary)]">
+                                      {briefing.recipient} · {formatTimestamp(briefing.deliveredAt ?? briefing.lastAttemptAt)}
+                                    </div>
+                                  </div>
+                                  <StatusBadge variant={status.variant} label={status.label} />
+                                  <IconChevronDown size={14} className="text-[var(--text-tertiary)] transition-transform group-open:rotate-180" />
+                                </summary>
+                                <div className="mt-3 max-w-[760px] border-l-2 border-[var(--border-secondary)] pl-3 type-body text-[var(--text-secondary)]">
+                                  {briefing.briefText ? (
+                                    <div className="whitespace-pre-wrap">{briefing.briefText.replaceAll('*', '')}</div>
+                                  ) : (
+                                    <div>{reason ?? 'No briefing content was needed.'}</div>
+                                  )}
+                                  <div className="mt-2 type-caption text-[var(--text-tertiary)]">
+                                    {briefing.attempts} {briefing.attempts === 1 ? 'attempt' : 'attempts'}
+                                    {briefing.permalink && (
+                                      <a href={briefing.permalink} target="_blank" rel="noreferrer" className="ml-2 inline-flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                                        Open in Slack <IconExternalLink size={11} />
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              </details>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </section>
+                  </>
+                )}
+              </div>
+            </>
+          ) : activeTab === 'delivery' ? (
+            <>
+              <div className="detail-page-header border-b px-7 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <StatusBadge variant={deliverySettingsReady ? 'delivered' : 'pending'} label={deliverySettingsReady ? 'Ready' : 'Needs Setup'} />
                     <div className="min-w-0">
                       <h2 className="type-section-title text-[var(--text-primary)]">Delivery Settings</h2>
                     </div>
@@ -1298,30 +1711,33 @@ export function ReadinessClient() {
                     <div>
                       <div className="type-caption font-medium text-[var(--text-primary)]">Meeting Prep</div>
                     </div>
-                    <div className="flex flex-wrap items-end gap-2">
-                      <label className="flex h-8 items-center gap-2 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2.5 type-caption font-medium text-[var(--text-primary)]">
-                        <input
-                          type="checkbox"
-                          checked={meetingPrepEnabled}
-                          onChange={(event) => setMeetingPrepEnabled(event.target.checked)}
-                          className="h-3.5 w-3.5 shrink-0 accent-[var(--canon-purple)]"
-                        />
-                        <IconClock size={13} />
-                        <span>{meetingPrepStatus}</span>
-                      </label>
-                      <label className="space-y-1">
-                        <span className="sr-only">Meeting Prep Minutes Before Meeting</span>
-                        <Input
-                          type="number"
-                          min={5}
-                          max={240}
-                          value={meetingPrepMinutesBefore}
-                          disabled={!meetingPrepEnabled}
-                          onChange={(event) => setMeetingPrepMinutesBefore(Math.min(240, Math.max(5, Number(event.target.value))))}
-                          className="h-8 w-[92px] bg-[var(--bg-primary)] type-caption font-medium"
-                        />
-                      </label>
-                      <span className="pb-2 type-caption text-[var(--text-tertiary)]">Minutes Before</span>
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-end gap-2">
+                        <label className="flex h-8 items-center gap-2 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2.5 type-caption font-medium text-[var(--text-primary)]">
+                          <input
+                            type="checkbox"
+                            checked={meetingPrepEnabled}
+                            onChange={(event) => setMeetingPrepEnabled(event.target.checked)}
+                            className="h-3.5 w-3.5 shrink-0 accent-[var(--canon-purple)]"
+                          />
+                          <IconClock size={13} />
+                          <span>{meetingPrepStatus}</span>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="sr-only">Meeting Prep Minutes Before Meeting</span>
+                          <Input
+                            type="number"
+                            min={5}
+                            max={240}
+                            value={meetingPrepMinutesBefore}
+                            disabled={!meetingPrepEnabled}
+                            onChange={(event) => setMeetingPrepMinutesBefore(Math.min(240, Math.max(5, Number(event.target.value))))}
+                            className="h-8 w-[92px] bg-[var(--bg-primary)] type-caption font-medium"
+                          />
+                        </label>
+                        <span className="pb-2 type-caption text-[var(--text-tertiary)]">Minutes Before</span>
+                      </div>
+
                     </div>
                   </div>
                 </section>
@@ -1329,10 +1745,9 @@ export function ReadinessClient() {
               <div className="shrink-0 border-t border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-7 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="type-caption text-[var(--text-tertiary)]">
-                    {hasDeliveryTargets ? 'Delivery Settings Apply To New Readiness Updates.' : 'Choose A Destination Before Saving.'}
+                    Weekly updates use channels.
                   </div>
                   <Button
-                    variant="secondary"
                     size="sm"
                     onClick={saveDeliverySettings}
                     disabled={savingDeliverySettings || !activeDeliveryProvider || !activeProviderConnected}
@@ -1488,6 +1903,39 @@ export function ReadinessClient() {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={!!deleteRequest}
+        onOpenChange={(open) => {
+          if (!open && !deletingSignals) setDeleteRequest(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {deleteRequest?.items.length === 1 ? 'Delete readiness signal?' : `Delete ${deleteRequest?.items.length ?? 0} readiness signals?`}
+            </DialogTitle>
+            <DialogDescription>
+              {deleteRequest?.items.length === 1
+                ? `This permanently removes "${deleteRequest.items[0]?.title}" from Canon. This cannot be undone.`
+                : 'This permanently removes the selected readiness signals from Canon. This cannot be undone.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleteRequest(null)} disabled={deletingSignals}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void confirmSignalDelete()} disabled={deletingSignals}>
+              <IconTrash size={14} />
+              {deletingSignals
+                ? 'Deleting...'
+                : deleteRequest?.items.length === 1
+                  ? 'Delete Signal'
+                  : 'Delete Signals'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

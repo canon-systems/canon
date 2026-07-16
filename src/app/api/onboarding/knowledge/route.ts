@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { listSlackChannels, SlackListChannelsError } from '@/lib/server/integrations/nativeSlack';
 import { hasNangoApiKey, listNangoConnectionsForOrganization, providerForNangoIntegration } from '@/lib/server/integrations/nango';
 import { createLogger } from '@/lib/server/logging';
@@ -255,7 +256,7 @@ export async function POST(request: NextRequest) {
       });
 
       await inngest.send({
-        name: 'onboarding/knowledge.sync.requested',
+        name: INNGEST_EVENTS.KNOWLEDGE_SYNC_REQUESTED,
         data: { sourceId: source.id, organizationId: organization.id },
       });
 
@@ -306,7 +307,7 @@ export async function POST(request: NextRequest) {
     });
 
     await inngest.send({
-      name: 'onboarding/knowledge.sync.requested',
+      name: INNGEST_EVENTS.KNOWLEDGE_SYNC_REQUESTED,
       data: { sourceId: source.id, organizationId: organization.id },
     });
 

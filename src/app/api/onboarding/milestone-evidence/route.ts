@@ -13,6 +13,7 @@ const evidenceTypes: MilestoneEvidenceType[] = [
   'communication_activity',
   'customer_exposure',
   'manager_verification',
+  'manager_reopened',
   'new_hire_blocker',
 ];
 

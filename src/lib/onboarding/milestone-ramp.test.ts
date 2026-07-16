@@ -4,6 +4,8 @@ import {
   clampMilestoneDayToTarget,
   findAvailableMilestoneDay,
   generatedMilestoneSpacingDays,
+  hasMilestoneContentOverlap,
+  milestoneContentSimilarity,
   normalizeMilestoneProgressStatus,
   normalizeRampTargets,
   pickCurrentMilestoneForEvidenceScan,
@@ -93,6 +95,38 @@ describe('milestone ramp rules', () => {
       occupiedDays: [3],
       minimumSpacingDays: generatedMilestoneSpacingDays(45),
     })).toBe(6);
+  });
+
+  it('detects milestone content overlap across title, trigger, proof, and retrieval text', () => {
+    const existing = {
+      title: 'Resolve launch blocker handoffs',
+      capability_outcome: 'Handle implementation blocker handoffs with the right owner and customer context.',
+      briefing_goal: 'Explain how launch blockers move from support to implementation owners.',
+      real_work_trigger: 'A customer launch blocker is handed off in Slack before go-live.',
+      success_signals: ['Slack thread names the blocker, owner, and next customer step'],
+      retrieval_brief: 'launch blocker handoff owner customer next step',
+      evidence_requirements: [{ label: 'Slack handoff thread includes blocker owner and customer next step' }],
+    };
+
+    expect(hasMilestoneContentOverlap({
+      title: 'Customer launch blocker handoff',
+      capability_outcome: 'Route implementation launch blockers to the correct owner with customer context.',
+      briefing_goal: 'Brief the hire on launch blocker handoffs before their first customer go-live issue.',
+      real_work_trigger: 'A Slack thread assigns an owner for a customer launch blocker.',
+      success_signals: ['Thread includes blocker, owner, and next step'],
+      retrieval_brief: 'customer launch blocker owner next step',
+      evidence_requirements: [{ label: 'Slack thread confirms blocker owner and next step' }],
+    }, [existing])).toBe(true);
+
+    expect(milestoneContentSimilarity({
+      title: 'Join renewal risk review',
+      capability_outcome: 'Summarize renewal risk themes after reviewing account history.',
+      briefing_goal: 'Explain active renewal risk patterns.',
+      real_work_trigger: 'A manager invites the hire to a renewal risk review.',
+      success_signals: ['Risk note references account history'],
+      retrieval_brief: 'renewal risk account history summary',
+      evidence_requirements: [{ label: 'Risk review note' }],
+    }, existing)).toBeLessThan(0.72);
   });
 
   it('picks only the next unblocked actionable milestone', () => {
