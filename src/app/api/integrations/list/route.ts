@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { canonicalProvider } from '@/lib/providers';
-import { requireWorkspace } from '@/lib/server/organization';
+import { demoConnections } from '@/lib/server/demo-workspace-data';
+import { isDemoOrganization, requireWorkspace } from '@/lib/server/organization';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { supportedNangoProviders } from '@/lib/server/integrations/nango';
 import { reconcileNangoWorkspaceConnections } from '@/lib/server/integrations/nango-reconciliation';
@@ -14,6 +15,7 @@ export async function GET() {
     }
 
     const { supabase, organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) return NextResponse.json({ connections: demoConnections() });
     try {
       await reconcileNangoWorkspaceConnections({
         supabase: createServiceRoleClient(),

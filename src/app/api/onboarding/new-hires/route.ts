@@ -5,7 +5,8 @@ import { INNGEST_EVENTS } from '@/inngest/constants';
 import { normalizeManagerCommunication, type ManagerCommunicationInput } from '@/lib/onboarding/manager-communication';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
-import { requireWorkspace } from '@/lib/server/organization';
+import { demoHires } from '@/lib/server/demo-workspace-data';
+import { isDemoOrganization, requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,7 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { supabase, organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) return NextResponse.json({ hires: demoHires() });
 
     const { data: hires, error } = await supabase
       .from('new_hires')

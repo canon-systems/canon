@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { OrganizationSwitcher, Show, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
+import { OrganizationSwitcher, Show, SignInButton, SignUpButton, UserButton, useOrganization } from '@clerk/nextjs';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -18,6 +18,7 @@ import {
 import { cn } from './ui/utils';
 import { CLERK_SIGN_IN_BUTTON_PROPS, CLERK_SIGN_UP_BUTTON_PROPS } from '@/lib/clerk-config';
 import { AUTH_ROUTES } from '@/lib/clerk-routes';
+import { DEMO_WORKSPACE_TYPE } from '@/lib/demo-workspace';
 
 const primaryNav = [
   { href: '/', label: 'Home', icon: IconHome2, exact: true },
@@ -33,7 +34,9 @@ const secondaryNav = [
 
 export function Navigation() {
   const pathname = usePathname();
+  const { organization } = useOrganization();
   const [collapsed, setCollapsed] = useState(false);
+  const isDemoWorkspace = organization?.publicMetadata?.workspace_type === DEMO_WORKSPACE_TYPE;
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -103,7 +106,14 @@ export function Navigation() {
           />
         </span>
         {!collapsed && (
-          <span className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Canon</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Canon</span>
+            {isDemoWorkspace && (
+              <span className="rounded-full bg-[var(--canon-purple-light)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--canon-purple)]">
+                Demo
+              </span>
+            )}
+          </span>
         )}
       </Link>
 

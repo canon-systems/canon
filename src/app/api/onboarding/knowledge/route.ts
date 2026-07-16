@@ -5,8 +5,9 @@ import { INNGEST_EVENTS } from '@/inngest/constants';
 import { listSlackChannels, SlackListChannelsError } from '@/lib/server/integrations/nativeSlack';
 import { hasNangoApiKey, listNangoConnectionsForOrganization, providerForNangoIntegration } from '@/lib/server/integrations/nango';
 import { createLogger } from '@/lib/server/logging';
+import { demoKnowledgeSources } from '@/lib/server/demo-workspace-data';
 import { unavailableSlackKnowledgeSourceIds } from '@/lib/server/knowledge-sync/source-cleanup';
-import { requireWorkspace } from '@/lib/server/organization';
+import { isDemoOrganization, requireWorkspace } from '@/lib/server/organization';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 
 export const dynamic = 'force-dynamic';
@@ -126,6 +127,7 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { supabase, organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) return NextResponse.json({ sources: demoKnowledgeSources() });
 
     const { data: sources, error } = await supabase
       .from('knowledge_sources')

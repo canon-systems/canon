@@ -4,7 +4,8 @@ import { inngest } from '@/inngest/client';
 import { INNGEST_EVENTS } from '@/inngest/constants';
 import { sendReadinessToTargets, type ReadinessDeliveryResult, type ReadinessDeliveryTargetRow } from '@/lib/server/readiness/delivery';
 import { createLogger } from '@/lib/server/logging';
-import { isWorkspaceAdmin, requireWorkspace } from '@/lib/server/organization';
+import { demoReadinessItems } from '@/lib/server/demo-workspace-data';
+import { isDemoOrganization, isWorkspaceAdmin, requireWorkspace } from '@/lib/server/organization';
 import { deliveryTargetRows, validSlackDmTargets } from '@/lib/server/readiness/delivery-targets';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
@@ -319,6 +320,13 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { supabase, organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) {
+      const items = demoReadinessItems();
+      return NextResponse.json({
+        brief: buildReadinessBrief(items),
+        permissions: { can_delete_signals: false },
+      });
+    }
 
     const { data: items, error } = await supabase
       .from('readiness_items')

@@ -4,7 +4,8 @@ import { inngest } from '@/inngest/client';
 import { INNGEST_EVENTS } from '@/inngest/constants';
 import { syncCalendarConnection, type CalendarConnection } from '@/lib/server/integrations/calendar-sync';
 import { reconcileNangoWorkspaceConnections } from '@/lib/server/integrations/nango-reconciliation';
-import { isWorkspaceAdmin, requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
+import { demoMeetingPrep } from '@/lib/server/demo-workspace-data';
+import { isDemoOrganization, isWorkspaceAdmin, requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -66,6 +67,7 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { supabase, organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) return NextResponse.json(demoMeetingPrep());
     const now = new Date();
     const recentStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const futureEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
