@@ -11,7 +11,7 @@ import {
   normalizeRampTargets,
 } from '@/lib/onboarding/milestone-ramp';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
-import { demoMilestones } from '@/lib/server/demo-workspace-data';
+import { demoMilestoneProposals, demoMilestones } from '@/lib/server/demo-workspace-data';
 import { isDemoOrganization } from '@/lib/server/organization';
 import type { Json } from '@/lib/supabase/database.types';
 import type { HireRole, MilestoneEvidenceRequirement } from '@/types/onboarding';
@@ -231,7 +231,8 @@ export async function GET(request: NextRequest) {
     if (roleParam && !isRole(roleParam)) return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
     if (isDemoOrganization(organization)) {
       const milestones = demoMilestones().filter((milestone) => !roleParam || milestone.role === roleParam);
-      return NextResponse.json({ milestones, proposals: [], latest_generation: null });
+      const proposals = demoMilestoneProposals().filter((proposal) => !roleParam || proposal.role === roleParam);
+      return NextResponse.json({ milestones, proposals, latest_generation: null });
     }
 
     let milestoneQuery = supabase

@@ -170,16 +170,38 @@ export async function POST(request: NextRequest) {
 
     const requestedProvider = typeof body.provider === 'string' ? body.provider : 'slack';
     const provider = requestedProvider.trim().toLowerCase();
+    const { slack_channel_id, slack_channel_name, name } = body;
+    const { supabase, organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) {
+      if (!['slack', 'granola', 'gmail', 'outlook', 'google_calendar'].includes(provider)) {
+        return NextResponse.json({ error: 'Unsupported knowledge provider' }, { status: 400 });
+      }
+
+      const sourceKey = slack_channel_id || name || provider;
+      return NextResponse.json({
+        demo: true,
+        source: {
+          id: sourceKey,
+          organization_id: organization.id,
+          provider,
+          name: name || slack_channel_name || sourceKey,
+          slack_channel_id: provider === 'slack' ? slack_channel_id || null : null,
+          slack_channel_name: provider === 'slack' ? slack_channel_name || null : null,
+          status: 'pending',
+          last_synced_at: null,
+          chunk_count: 0,
+          error_message: null,
+          created_at: new Date().toISOString(),
+        },
+      }, { status: 201 });
+    }
+
     if (!['slack', 'granola'].includes(provider)) {
       return NextResponse.json({ error: 'Unsupported knowledge provider' }, { status: 400 });
     }
-
-    const { slack_channel_id, slack_channel_name, name } = body;
     if (provider === 'slack' && !slack_channel_id) {
       return NextResponse.json({ error: 'slack_channel_id is required' }, { status: 400 });
     }
-
-    const { supabase, organization } = await requireWorkspace(user);
 
     if (provider === 'granola') {
       const granolaConnected = await hasActiveGranolaConnection({

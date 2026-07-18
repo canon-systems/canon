@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { getSession } from '@/lib/auth';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { demoKnowledgeSourceOptions } from '@/lib/server/demo-workspace-data';
 import { listSlackChannels, SlackListChannelsError } from '@/lib/server/integrations/nativeSlack';
 import { hasNangoApiKey, listNangoConnectionsForOrganization, providerForNangoIntegration } from '@/lib/server/integrations/nango';
 import { sourceOptionTopic } from '@/lib/server/knowledge-sync/source-option-labels';
-import { requireWorkspace } from '@/lib/server/organization';
+import { isDemoOrganization, requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +21,13 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { supabase, organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) {
+      return NextResponse.json({
+        options: demoKnowledgeSourceOptions(),
+        connectedProviders: { slack: true, granola: true },
+        noIntegrationsConnected: false,
+      });
+    }
     const options: Array<{
       id: string;
       name: string;
