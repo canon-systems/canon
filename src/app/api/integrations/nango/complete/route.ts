@@ -12,7 +12,6 @@ import {
 import { upsertWorkspaceConnection, type WorkspaceProvider } from '@/lib/server/integrations/workspaceConnections';
 import { errorMessage } from '@/lib/server/logging';
 import { requireWorkspace } from '@/lib/server/organization';
-import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -74,7 +73,6 @@ export async function POST(request: NextRequest) {
       connectionId,
       metadata,
     });
-    await trackIntegrationStateChanged(supabase, organization.id, 'connected', provider, connectionId);
 
     if (provider !== 'google_calendar' && provider !== 'outlook') {
       return NextResponse.json({ connected: true });

@@ -8,7 +8,6 @@ import {
 } from '@/lib/server/integrations/nango';
 import { upsertWorkspaceConnection, type WorkspaceProvider } from '@/lib/server/integrations/workspaceConnections';
 import { createLogger, errorMessage } from '@/lib/server/logging';
-import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
 
 export const runtime = 'nodejs';
 
@@ -126,7 +125,6 @@ export async function POST(request: NextRequest) {
         connectionId,
         metadata,
       });
-      await trackIntegrationStateChanged(supabase, organizationId, 'connected', provider, connectionId);
       if (provider === 'google_calendar' || provider === 'outlook') {
         await inngest.send({
           name: INNGEST_EVENTS.CALENDAR_SYNC_REQUESTED,

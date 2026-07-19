@@ -135,6 +135,9 @@ export async function PATCH(request: NextRequest) {
       .single();
 
     if (!accessRequest) return NextResponse.json({ error: 'Access request not found' }, { status: 404 });
+    if (!accessRequest.new_hire_id) {
+      return NextResponse.json({ error: 'Access request is missing its new hire' }, { status: 409 });
+    }
 
     const { data: updated, error } = await supabase
       .from('access_requests')
@@ -147,6 +150,9 @@ export async function PATCH(request: NextRequest) {
     if (error || !updated) return NextResponse.json({ error: 'Access request not found or update failed' }, { status: 404 });
 
     if (status === 'granted' || status === 'confirmed') {
+      if (!updated.new_hire_id) {
+        return NextResponse.json({ error: 'Access request is missing its new hire' }, { status: 409 });
+      }
       await syncAccessReadinessEvidence({
         supabase,
         newHireId: updated.new_hire_id,
@@ -189,6 +195,9 @@ export async function DELETE(request: NextRequest) {
       .single();
 
     if (!ar) return NextResponse.json({ error: 'Access request not found' }, { status: 404 });
+    if (!ar.new_hire_id) {
+      return NextResponse.json({ error: 'Access request is missing its new hire' }, { status: 409 });
+    }
 
     const { error } = await supabase
       .from('access_requests')

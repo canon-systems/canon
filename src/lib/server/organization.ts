@@ -2,6 +2,7 @@ import { auth, clerkClient } from '@clerk/nextjs/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { CanonUser } from '@/lib/auth';
+import { DEMO_WORKSPACE_TYPE } from '@/lib/demo-workspace';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export type OrganizationRole = 'owner' | 'admin' | 'member';
@@ -13,6 +14,7 @@ export type CurrentOrganization = {
   slug: string;
   owner_id: string | null;
   role: OrganizationRole;
+  is_demo: boolean;
 };
 
 export type ClerkOrganizationDetails = {
@@ -21,6 +23,7 @@ export type ClerkOrganizationDetails = {
   slug: string;
   ownerId: string | null;
   role: OrganizationRole;
+  isDemo: boolean;
 };
 
 type SupabaseErrorLike = {
@@ -38,6 +41,52 @@ class WorkspaceError extends Error {
     this.name = 'WorkspaceError';
     this.status = status;
   }
+}
+
+const DEMO_ORGANIZATION_ID = '00000000-0000-4000-8000-000000000042';
+
+export function isDemoOrganization(organization: Pick<CurrentOrganization, 'is_demo' | 'slug'>) {
+  return organization.is_demo;
+}
+
+function demoOrganization(clerkOrg: ClerkOrganizationDetails): CurrentOrganization {
+  return {
+    id: DEMO_ORGANIZATION_ID,
+    clerk_org_id: clerkOrg.clerkOrgId,
+    name: clerkOrg.name,
+    slug: clerkOrg.slug,
+    owner_id: clerkOrg.ownerId,
+    role: clerkOrg.role,
+    is_demo: true,
+  };
+}
+
+function readOnlyDemoClient(client: SupabaseClient) {
+  const mutations = new Set(['insert', 'upsert', 'update', 'delete']);
+  return new Proxy(client, {
+    get(target, property, receiver) {
+      if (property === 'rpc') {
+        return () => {
+          throw new WorkspaceError('The demo workspace is file-backed and read-only.', 409);
+        };
+      }
+      if (property !== 'from') return Reflect.get(target, property, receiver);
+      return (relation: string) => {
+        const builder = target.from(relation);
+        return new Proxy(builder, {
+          get(builderTarget, builderProperty, builderReceiver) {
+            if (typeof builderProperty === 'string' && mutations.has(builderProperty)) {
+              return () => {
+                throw new WorkspaceError('The demo workspace is file-backed and read-only.', 409);
+              };
+            }
+            const value = Reflect.get(builderTarget, builderProperty, builderReceiver);
+            return typeof value === 'function' ? value.bind(builderTarget) : value;
+          },
+        });
+      };
+    },
+  }) as SupabaseClient;
 }
 
 export function roleFromClerk(role: string | null | undefined): OrganizationRole {
@@ -80,6 +129,8 @@ async function activeClerkOrganization(): Promise<ClerkOrganizationDetails> {
   const organization = await client.organizations.getOrganization({
     organizationId: authState.orgId,
   });
+  const publicMetadata = organization.publicMetadata as Record<string, unknown> | null;
+  const privateMetadata = organization.privateMetadata as Record<string, unknown> | null;
 
   return {
     clerkOrgId: authState.orgId,
@@ -87,6 +138,7 @@ async function activeClerkOrganization(): Promise<ClerkOrganizationDetails> {
     slug: organization.slug || `${slugify(organization.name || 'workspace')}-${authState.orgId.slice(-8)}`,
     ownerId: organization.createdBy ?? authState.userId,
     role: roleFromClerk(authState.orgRole),
+    isDemo: publicMetadata?.workspace_type === DEMO_WORKSPACE_TYPE || privateMetadata?.data_source === 'file',
   };
 }
 
@@ -115,13 +167,8 @@ export async function ensureCanonOrganizationForClerkOrg(
   return {
     ...organization,
     role: clerkOrg.role,
+    is_demo: false,
   };
-}
-
-async function ensureCanonOrganization(): Promise<CurrentOrganization> {
-  const clerkOrg = await activeClerkOrganization();
-  const service = createServiceRoleClient();
-  return ensureCanonOrganizationForClerkOrg(service, clerkOrg);
 }
 
 export async function getOrganizationForUser(
@@ -129,10 +176,9 @@ export async function getOrganizationForUser(
   user: CanonUser
 ): Promise<CurrentOrganization | null> {
   void supabase;
-  void user;
 
   try {
-    return await ensureCanonOrganization();
+    return (await requireWorkspace(user)).organization;
   } catch (error) {
     if (error instanceof WorkspaceError && error.status === 428) return null;
     throw error;
@@ -146,9 +192,13 @@ export function isWorkspaceAdmin(role: OrganizationRole) {
 export async function requireWorkspace(user?: CanonUser) {
   void user;
 
-  const supabase = createServiceRoleClient();
-  const organization = await ensureCanonOrganization();
-  return { supabase, organization };
+  const clerkOrg = await activeClerkOrganization();
+  const service = createServiceRoleClient();
+  if (clerkOrg.isDemo) {
+    return { supabase: readOnlyDemoClient(service), organization: demoOrganization(clerkOrg) };
+  }
+  const organization = await ensureCanonOrganizationForClerkOrg(service, clerkOrg);
+  return { supabase: service, organization };
 }
 
 export async function requireWorkspaceAdmin(user?: CanonUser) {

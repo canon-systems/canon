@@ -4,7 +4,8 @@ import { normalizeManagerCommunication } from '@/lib/onboarding/manager-communic
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
 import { isAccessStatusGranted, normalizeToolName, requiredToolsForEvidence } from '@/lib/onboarding/milestone-ramp';
-import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
+import { demoHireDetail } from '@/lib/server/demo-workspace-data';
+import { isDemoOrganization, requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import type { HireStatus, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
@@ -35,6 +36,12 @@ export async function GET(
 
     const { id } = await params;
     const { supabase, organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) {
+      const detail = demoHireDetail(id);
+      return detail
+        ? NextResponse.json(detail)
+        : NextResponse.json({ error: 'New hire not found' }, { status: 404 });
+    }
 
     const { data: hire, error: hireError } = await supabase
       .from('new_hires')
@@ -105,7 +112,7 @@ export async function GET(
     );
 
     const milestonePath = (milestones ?? []).map((milestone) => {
-      const tools = requiredToolsForEvidence((milestone.evidence_requirements ?? []) as MilestoneEvidenceRequirement[]);
+      const tools = requiredToolsForEvidence((milestone.evidence_requirements ?? []) as unknown as MilestoneEvidenceRequirement[]);
       return {
         milestone,
         progress: progressByMilestone.get(milestone.id) ?? null,

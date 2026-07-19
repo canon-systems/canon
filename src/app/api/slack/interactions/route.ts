@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
         });
 
         // Fire side-effects independently so one failure doesn't block the other
-        await syncAccessReadinessEvidence({ supabase, newHireId: updated.new_hire_id }).catch((err: unknown) => {
+        await syncAccessReadinessEvidence({ supabase, newHireId: requestContext.new_hire_id }).catch((err: unknown) => {
           log.warn('interaction_skipped', { reason: 'sync_readiness_failed', error: err instanceof Error ? err.message : String(err) });
         });
 
@@ -435,7 +435,7 @@ export async function POST(request: NextRequest) {
           event: 'hire_confirmed_access',
         });
 
-        await syncAccessReadinessEvidence({ supabase, newHireId: updated.new_hire_id }).catch((err: unknown) => {
+        await syncAccessReadinessEvidence({ supabase, newHireId: requestContext.new_hire_id }).catch((err: unknown) => {
           log.warn('interaction_skipped', { reason: 'sync_readiness_after_confirm_failed', error: err instanceof Error ? err.message : String(err) });
         });
 

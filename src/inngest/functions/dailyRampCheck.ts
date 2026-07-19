@@ -165,7 +165,7 @@ export const sendNextDueRampMilestone = inngest.createFunction(
 
     const { data: activeHires } = await supabase
       .from('new_hires')
-      .select('id, organization_id, first_name, last_name, name, role, slack_user_id, start_date, ramp_day, status')
+      .select('id, organization_id, first_name, last_name, role, slack_user_id, start_date, ramp_day, status')
       .eq('status', 'active');
 
     if (!activeHires || activeHires.length === 0) {
@@ -238,7 +238,7 @@ export const sendNextDueRampMilestone = inngest.createFunction(
           ]);
 
           const milestone = pickNextActionableMilestone(
-            (dueMilestones ?? []) as RampMilestone[],
+            (dueMilestones ?? []) as unknown as RampMilestone[],
             (progressRows ?? []).map((row) => ({
               milestone_id: row.milestone_id,
               status: row.status,

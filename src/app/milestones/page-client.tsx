@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -54,6 +55,8 @@ type ProposalEditForm = {
   retrieval_brief: string;
   success_signals: string;
 };
+
+type MilestonePlanTab = 'approved' | 'drafts';
 
 type MilestonesResponse = {
   milestones?: RampMilestone[];
@@ -265,6 +268,7 @@ export function MilestonesClient() {
   const [activeRole, setActiveRole] = useState<HireRole>('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingMilestone, setEditingMilestone] = useState<RampMilestone | null>(null);
+  const [activePlanTab, setActivePlanTab] = useState<MilestonePlanTab>('approved');
   const [editForm, setEditForm] = useState<MilestoneForm>(emptyForm(''));
   const [pendingDelete, setPendingDelete] = useState<RampMilestone[]>([]);
   const [selectedMilestoneIds, setSelectedMilestoneIds] = useState<Set<string>>(new Set());
@@ -408,7 +412,8 @@ export function MilestonesClient() {
   const draftActiveConflictDays = activeProposals.flatMap((proposal) => (
     activeMilestoneDays.has(proposal.suggested_day_trigger) ? [proposal.suggested_day_trigger] : []
   ));
-  const conflictDays = Array.from(new Set([...duplicateActiveDays, ...duplicateDraftDays, ...draftActiveConflictDays]))
+  const approvedConflictDays = Array.from(duplicateActiveDays).sort((a, b) => a - b);
+  const draftConflictDays = Array.from(new Set([...duplicateDraftDays, ...draftActiveConflictDays]))
     .sort((a, b) => a - b);
   const activeRoleProfile = roleProfileFor(roleProfiles, activeRole);
   const activeJobDescription = activeRoleProfile?.job_description.trim() ?? '';
@@ -713,13 +718,19 @@ export function MilestonesClient() {
                 key={profile.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => { setActiveRole(role); setForm(emptyForm(role)); setSelectedMilestoneIds(new Set()); }}
+                onClick={() => {
+                  setActiveRole(role);
+                  setForm(emptyForm(role));
+                  setSelectedMilestoneIds(new Set());
+                  setActivePlanTab('approved');
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     setActiveRole(role);
                     setForm(emptyForm(role));
                     setSelectedMilestoneIds(new Set());
+                    setActivePlanTab('approved');
                   }
                 }}
                 className={cn(
@@ -761,8 +772,19 @@ export function MilestonesClient() {
       </div>
 
       {/* Right panel — role detail */}
-      <div className="surface-page flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div className="detail-page-header px-8 py-5 border-b">
+      <Tabs
+        value={activePlanTab}
+        onValueChange={(value) => {
+          const nextTab = value as MilestonePlanTab;
+          setActivePlanTab(nextTab);
+          if (nextTab === 'drafts') setSelectedMilestoneIds(new Set());
+        }}
+        className="surface-page flex-1 min-w-0 flex flex-col overflow-hidden"
+      >
+        <div className={cn(
+          'detail-page-header border-b px-8 pt-5',
+          activeProfiles.length === 0 ? 'pb-5' : 'pb-0'
+        )}>
           <div className="flex items-start justify-between gap-4 mb-4">
             <div>
               <div className="flex items-center gap-3">
@@ -775,6 +797,7 @@ export function MilestonesClient() {
                 <h1 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{activeRole || 'No Active Roles'}</h1>
               </div>
               <div className="flex items-center gap-2 mt-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
+                <span>{activeMilestones.length} approved learning step{activeMilestones.length === 1 ? '' : 's'}</span>
                 {activeProposals.length > 0 && (
                   <>
                     <span>·</span>
@@ -802,7 +825,7 @@ export function MilestonesClient() {
             </div>
           </div>
           <div
-            className="mb-3 rounded-[8px] border px-[14px] py-[10px]"
+            className="rounded-[8px] border px-[14px] py-[10px]"
             style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
           >
             <div className="flex items-start justify-between gap-3">
@@ -817,6 +840,18 @@ export function MilestonesClient() {
               </Button>
             </div>
           </div>
+          {activeProfiles.length > 0 && (
+            <TabsList className="mt-3 flex-wrap border-b-0 bg-transparent">
+              <TabsTrigger value="approved" className="inline-flex items-center gap-2 px-1">
+                Approved Plan
+                <span className="type-caption tabular-nums opacity-60">{activeMilestones.length}</span>
+              </TabsTrigger>
+              <TabsTrigger value="drafts" className="inline-flex items-center gap-2 px-1">
+                Draft Proposals
+                <span className="type-caption tabular-nums opacity-60">{activeProposals.length}</span>
+              </TabsTrigger>
+            </TabsList>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 py-6">
@@ -833,136 +868,196 @@ export function MilestonesClient() {
                 <Link href="/settings?tab=roles">Configure Roles</Link>
               </Button>
             </div>
-          ) : activeMilestones.length === 0 && activeProposals.length === 0 ? (
-            generating ? (
-              <div className="flex flex-col gap-3">
-                {[1, 2, 3, 4].map((i) => (
-                  <Skeleton key={i} className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
-                <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Learning Steps</div>
-                <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                  Generate draft proof points from company knowledge or add a learning step manually.
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={generateMilestones} disabled={generating}>
-                    <IconBrain size={13} /> Generate
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}>
-                    Add Manually
-                  </Button>
-                </div>
-              </div>
-            )
           ) : (
-            <div className="flex flex-col gap-5">
-              {conflictDays.length > 0 && (
-                <div
-                  className="rounded-[8px] border px-4 py-3"
-                  style={{ backgroundColor: 'var(--amber-bg-subtle)', borderColor: 'var(--amber)' }}
-                >
-                  <div className="flex items-start gap-3">
-                    <IconAlertTriangle size={16} className="mt-[2px] flex-shrink-0 text-[var(--amber)]" />
-                    <div className="min-w-0">
-                      <div className="type-panel-title text-[var(--text-primary)]">Spacing needs attention</div>
-                      <p className="type-body mt-1 text-[var(--text-secondary)]">
-                        Day {conflictDays.join(', day ')} has more than one learning step or draft for this role. Keep one clear step per day so the ramp stays digestible.
-                      </p>
+            <>
+              <TabsContent value="approved" className="m-0 space-y-5">
+                {approvedConflictDays.length > 0 && (
+                  <div
+                    className="rounded-[8px] border px-4 py-3"
+                    style={{ backgroundColor: 'var(--amber-bg-subtle)', borderColor: 'var(--amber)' }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <IconAlertTriangle size={16} className="mt-[2px] flex-shrink-0 text-[var(--amber)]" />
+                      <div className="min-w-0">
+                        <div className="type-panel-title text-[var(--text-primary)]">Spacing needs attention</div>
+                        <p className="type-body mt-1 text-[var(--text-secondary)]">
+                          Day {approvedConflictDays.join(', day ')} has more than one approved learning step for this role.
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {activeProposals.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="type-kicker" style={{ color: 'var(--text-tertiary)' }}>Draft Proposals</span>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="secondary" onClick={rejectAllProposals} disabled={!!bulkAction || !!actionId}>
-                        {bulkAction === 'reject_all' ? 'Rejecting...' : 'Reject All'}
-                      </Button>
-                      <Button size="sm" onClick={acceptAllProposals} disabled={!!bulkAction || !!actionId}>
-                        {bulkAction === 'accept_all' ? 'Accepting...' : 'Accept All'}
-                      </Button>
-                    </div>
-                  </div>
+                {generating && activeMilestones.length === 0 ? (
                   <div className="flex flex-col gap-3">
-                    {activeProposals.map((proposal) => (
-                      <ProposalCard
-                        key={proposal.id}
-                        proposal={proposal}
-                        disabled={actionId === proposal.id || !!bulkAction}
-                        onApprove={approveProposal}
-                        onEdit={openEditProposal}
-                        onReject={rejectProposal}
-                        timingConflict={activeMilestoneDays.has(proposal.suggested_day_trigger) || duplicateDraftDays.has(proposal.suggested_day_trigger)}
-                      />
+                    {[1, 2, 3, 4].map((i) => (
+                      <Skeleton key={i} className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />
                     ))}
                   </div>
-                </div>
-              )}
-
-              {activeMilestones.length > 0 && (
-                <div>
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                    <div className="type-kicker" style={{ color: 'var(--text-tertiary)' }}>Approved Plan</div>
-                    <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-2 type-caption text-[var(--text-secondary)]">
-                        <input
-                          type="checkbox"
-                          checked={activeMilestones.length > 0 && activeMilestones.every((milestone) => selectedMilestoneIds.has(milestone.id))}
-                          onChange={(event) => setSelectedMilestoneIds(event.target.checked
-                            ? new Set(activeMilestones.map((milestone) => milestone.id))
-                            : new Set())}
-                          className="h-4 w-4 accent-[var(--canon-purple)]"
+                ) : activeMilestones.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-3 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] py-12">
+                    <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+                    <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Learning Steps</div>
+                    <div className="type-body text-center max-w-[260px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                      {activeProposals.length > 0
+                        ? 'Draft proposals are ready to review.'
+                        : 'Generate draft proposals or add a learning step manually.'}
+                    </div>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {activeProposals.length > 0 ? (
+                        <Button size="sm" onClick={() => setActivePlanTab('drafts')}>
+                          Review Draft Proposals
+                        </Button>
+                      ) : (
+                        <Button size="sm" onClick={generateMilestones} disabled={generating}>
+                          <IconBrain size={13} /> Generate Draft Proposals
+                        </Button>
+                      )}
+                      <Button size="sm" variant="secondary" onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}>
+                        Add Manually
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <div className="type-kicker" style={{ color: 'var(--text-tertiary)' }}>Approved Learning Steps</div>
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-2 type-caption text-[var(--text-secondary)]">
+                          <input
+                            type="checkbox"
+                            checked={activeMilestones.length > 0 && activeMilestones.every((milestone) => selectedMilestoneIds.has(milestone.id))}
+                            onChange={(event) => setSelectedMilestoneIds(event.target.checked
+                              ? new Set(activeMilestones.map((milestone) => milestone.id))
+                              : new Set())}
+                            className="h-4 w-4 accent-[var(--canon-purple)]"
+                          />
+                          {selectedMilestoneIds.size > 0 ? `${selectedMilestoneIds.size} selected` : 'Select all'}
+                        </label>
+                        {selectedMilestoneIds.size > 0 && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setPendingDelete(activeMilestones.filter((milestone) => selectedMilestoneIds.has(milestone.id)))}
+                          >
+                            <IconTrash size={13} /> Remove
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      {activeMilestones.map((m, index) => (
+                        <MilestoneCard
+                          key={m.id}
+                          milestone={m}
+                          sequenceIndex={index}
+                          previousTitle={index > 0 ? activeMilestones[index - 1]?.title ?? null : null}
+                          targetRampDays={activeTargetDays}
+                          timingConflict={duplicateActiveDays.has(m.day_trigger)}
+                          selected={selectedMilestoneIds.has(m.id)}
+                          onSelectedChange={(selected) => setSelectedMilestoneIds((current) => {
+                            const next = new Set(current);
+                            if (selected) next.add(m.id);
+                            else next.delete(m.id);
+                            return next;
+                          })}
+                          onEdit={openEdit}
+                          onDelete={(milestone) => {
+                            setDeleteError('');
+                            setPendingDelete([milestone]);
+                          }}
+                          deleting={actionId === m.id}
                         />
-                        {selectedMilestoneIds.size > 0 ? `${selectedMilestoneIds.size} selected` : 'Select all'}
-                      </label>
-                      {selectedMilestoneIds.size > 0 && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => setPendingDelete(activeMilestones.filter((milestone) => selectedMilestoneIds.has(milestone.id)))}
-                        >
-                          <IconTrash size={13} /> Remove
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="drafts" className="m-0 space-y-5">
+                {draftConflictDays.length > 0 && (
+                  <div
+                    className="rounded-[8px] border px-4 py-3"
+                    style={{ backgroundColor: 'var(--amber-bg-subtle)', borderColor: 'var(--amber)' }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <IconAlertTriangle size={16} className="mt-[2px] flex-shrink-0 text-[var(--amber)]" />
+                      <div className="min-w-0">
+                        <div className="type-panel-title text-[var(--text-primary)]">Draft spacing needs attention</div>
+                        <p className="type-body mt-1 text-[var(--text-secondary)]">
+                          Day {draftConflictDays.join(', day ')} has a draft that overlaps another draft or approved learning step.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {generating && activeProposals.length === 0 ? (
+                  <div className="flex flex-col gap-3">
+                    {[1, 2, 3, 4].map((i) => (
+                      <Skeleton key={i} className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />
+                    ))}
+                  </div>
+                ) : activeProposals.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-3 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] py-12">
+                    <IconSparkles size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+                    <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Draft Proposals</div>
+                    <div className="type-body text-center max-w-[270px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                      {activeMilestones.length > 0
+                        ? 'The approved plan has learning steps for this role.'
+                        : 'Generate recommended learning steps from company knowledge.'}
+                    </div>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {activeMilestones.length > 0 && (
+                        <Button size="sm" onClick={() => setActivePlanTab('approved')}>
+                          Review Approved Plan
+                        </Button>
+                      )}
+                      <Button size="sm" variant={activeMilestones.length > 0 ? 'secondary' : 'default'} onClick={generateMilestones} disabled={generating}>
+                        <IconBrain size={13} /> Generate Draft Proposals
+                      </Button>
+                      {activeMilestones.length === 0 && (
+                        <Button size="sm" variant="secondary" onClick={() => setActivePlanTab('approved')}>
+                          Review Approved Plan
                         </Button>
                       )}
                     </div>
                   </div>
-                  <div className="flex flex-col gap-3">
-                    {activeMilestones.map((m, index) => (
-                      <MilestoneCard
-                        key={m.id}
-                        milestone={m}
-                        sequenceIndex={index}
-                        previousTitle={index > 0 ? activeMilestones[index - 1]?.title ?? null : null}
-                        targetRampDays={activeTargetDays}
-                        timingConflict={duplicateActiveDays.has(m.day_trigger)}
-                        selected={selectedMilestoneIds.has(m.id)}
-                        onSelectedChange={(selected) => setSelectedMilestoneIds((current) => {
-                          const next = new Set(current);
-                          if (selected) next.add(m.id);
-                          else next.delete(m.id);
-                          return next;
-                        })}
-                        onEdit={openEdit}
-                        onDelete={(milestone) => {
-                          setDeleteError('');
-                          setPendingDelete([milestone]);
-                        }}
-                        deleting={actionId === m.id}
-                      />
-                    ))}
+                ) : (
+                  <div>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="type-kicker" style={{ color: 'var(--text-tertiary)' }}>Recommended New Learning Steps</div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="secondary" onClick={rejectAllProposals} disabled={!!bulkAction || !!actionId}>
+                          {bulkAction === 'reject_all' ? 'Rejecting...' : 'Reject All'}
+                        </Button>
+                        <Button size="sm" onClick={acceptAllProposals} disabled={!!bulkAction || !!actionId}>
+                          {bulkAction === 'accept_all' ? 'Approving...' : 'Approve All'}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      {activeProposals.map((proposal) => (
+                        <ProposalCard
+                          key={proposal.id}
+                          proposal={proposal}
+                          disabled={actionId === proposal.id || !!bulkAction}
+                          onApprove={approveProposal}
+                          onEdit={openEditProposal}
+                          onReject={rejectProposal}
+                          timingConflict={activeMilestoneDays.has(proposal.suggested_day_trigger) || duplicateDraftDays.has(proposal.suggested_day_trigger)}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </TabsContent>
+            </>
           )}
         </div>
-      </div>
+      </Tabs>
 
       {/* Add Milestone Dialog */}
       <Dialog open={showAddForm} onOpenChange={(open) => { if (!open) setShowAddForm(false); }}>

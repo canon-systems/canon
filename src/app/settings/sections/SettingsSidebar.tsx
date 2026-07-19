@@ -1,22 +1,21 @@
 import {
   Building2 as IconBuilding,
   Plug as IconPlug,
-  User as IconUser,
   Users as IconUsers,
 } from 'lucide-react';
 
 import { cn } from '@/components/ui/utils';
 
-const SETTINGS_TABS = ['profile', 'org', 'integrations', 'readiness', 'apikeys', 'delete'] as const;
+const SETTINGS_TABS = ['org', 'integrations', 'readiness', 'apikeys'] as const;
 export type SettingsTab = typeof SETTINGS_TABS[number];
 
 const settingSections = [
-  { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
+  { section: 'Workspace', items: [{ id: 'org', label: 'Workspace', icon: IconBuilding }] },
   { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }] },
   { section: 'Readiness', items: [{ id: 'readiness', label: 'Roles & Tools', icon: IconUsers }] },
 ] satisfies Array<{
   section: string;
-  items: Array<{ id: SettingsTab; label: string; icon: typeof IconUser }>;
+  items: Array<{ id: SettingsTab; label: string; icon: typeof IconBuilding }>;
 }>;
 
 export function isSettingsTab(value: string | null): value is SettingsTab {

@@ -4,11 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import Nango, { type ConnectUIEvent } from '@nangohq/frontend';
 import {
   CheckCheck as IconChecks,
+  CalendarDays as IconCalendar,
   CircleAlert as IconAlertCircle,
   Clock as IconClock,
   Database as IconDatabase,
   Hash as IconHash,
   Loader2 as IconLoader2,
+  Mail as IconMail,
   MessageSquare as IconMessageSquare,
   MoreVertical as IconDotsVertical,
   Pencil as IconEdit,
@@ -107,6 +109,9 @@ function sourceProviderLabel(provider: KnowledgeProvider) {
   if (provider === 'slack') return 'Slack';
   if (provider === 'granola') return 'Granola';
   if (provider === 'teams') return 'Microsoft Teams';
+  if (provider === 'gmail') return 'Gmail';
+  if (provider === 'outlook') return 'Outlook';
+  if (provider === 'google_calendar') return 'Google Calendar';
   return 'Integration';
 }
 
@@ -173,18 +178,25 @@ function providerLabel(provider: KnowledgeProvider) {
   if (provider === 'slack') return 'Slack';
   if (provider === 'teams') return 'Microsoft Teams';
   if (provider === 'granola') return 'Granola';
+  if (provider === 'gmail') return 'Gmail';
+  if (provider === 'outlook') return 'Outlook';
+  if (provider === 'google_calendar') return 'Google Calendar';
   return 'Integration';
 }
 
 function sourceOptionIcon(provider: KnowledgeProvider) {
   if (provider === 'slack') return <IconHash size={14} />;
   if (provider === 'teams') return <IconMessageSquare size={14} />;
+  if (provider === 'gmail' || provider === 'outlook') return <IconMail size={14} />;
+  if (provider === 'google_calendar') return <IconCalendar size={14} />;
   return <IconDatabase size={14} />;
 }
 
 function sourceIcon(provider: KnowledgeProvider) {
   if (provider === 'slack') return <IconHash size={15} />;
   if (provider === 'teams') return <IconMessageSquare size={15} />;
+  if (provider === 'gmail' || provider === 'outlook') return <IconMail size={15} />;
+  if (provider === 'google_calendar') return <IconCalendar size={15} />;
   return <IconDatabase size={15} />;
 }
 
@@ -485,6 +497,7 @@ export function KnowledgeClient() {
     setAdding(true);
     setSourceOptionsError('');
     try {
+      const demoSources: KnowledgeSource[] = [];
       for (const sourceOption of selectedSourceOptions) {
         const provider = sourceOption.provider ?? 'slack';
         const requestBody = provider === 'granola'
@@ -504,20 +517,30 @@ export function KnowledgeClient() {
           body: JSON.stringify(requestBody),
         });
 
+        const data = (await res.json()) as { source?: KnowledgeSource; demo?: boolean; error?: string };
+
         if (!res.ok) {
-          const data = (await res.json()) as { error?: string };
           if (data.error === 'Organization not found') {
             throw new Error('org_not_found');
           }
           throw new Error(actionFailureMessage('add'));
         }
+
+        if (data.demo && data.source) demoSources.push(data.source);
       }
 
       setShowAddModal(false);
       setSelectedSourceOptionIds(new Set());
       setSourceSearch('');
       setSelectedSourceCategory('all');
-      await loadSources();
+      if (demoSources.length > 0) {
+        setSources((current) => {
+          const addedIds = new Set(demoSources.map((source) => source.id));
+          return [...current.filter((source) => !addedIds.has(source.id)), ...demoSources];
+        });
+      } else {
+        await loadSources();
+      }
       toast.success(selectedSourceOptions.length === 1 ? 'Source added' : `${selectedSourceOptions.length} sources added`);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : '';
@@ -922,9 +945,9 @@ export function KnowledgeClient() {
 
                 <div className="grid grid-cols-1 gap-3 mb-5 sm:grid-cols-3">
                   {[
+                    { label: 'Type', value: sourceProviderLabel(selected.provider) },
                     { label: 'Items Ready', value: selected.chunk_count ?? 0 },
                     { label: 'Last Updated', value: fmtDate(selected.last_synced_at) },
-                    { label: 'Type', value: sourceProviderLabel(selected.provider) },
                   ].map((item) => (
                     <div key={item.label} className="rounded-[8px] p-[12px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
                       <div className="type-caption mb-1" style={{ color: 'var(--text-tertiary)' }}>{item.label}</div>

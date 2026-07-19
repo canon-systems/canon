@@ -103,7 +103,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unsupported knowledge provider' }, { status: 400 });
     }
 
-    if (STOPPABLE_STATUSES.has(source.status)) {
+    if (source.status && STOPPABLE_STATUSES.has(source.status)) {
       await supabase
         .from('knowledge_sources')
         .update({ status: 'stopped', error_message: null })

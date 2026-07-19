@@ -571,10 +571,6 @@ export function ReadinessClient() {
     () => categoryItems.find((item) => item.id === selectedItemId) ?? categoryItems[0] ?? null,
     [categoryItems, selectedItemId]
   );
-  const unsentCategoryItems = useMemo(
-    () => categoryItems.filter((item) => item.status === 'draft' || item.status === 'reviewed'),
-    [categoryItems]
-  );
   const categoryCounts = useMemo(
     () => new Map(categories.map((category) => [category.id, items.filter((item) => item.category === category.id).length])),
     [items]
@@ -977,7 +973,7 @@ export function ReadinessClient() {
           <Skeleton className="h-8 w-44 bg-[var(--bg-primary)]" />
         </div>
         <div className="flex flex-1 overflow-hidden">
-          <div className="split-sidebar w-[280px] flex-shrink-0 border-r flex flex-col gap-3 p-4">
+          <div className="split-sidebar w-[360px] flex-shrink-0 border-r flex flex-col gap-3 p-4 xl:w-[380px]">
             <Skeleton className="h-8 bg-[var(--bg-primary)]" />
             {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-14 rounded-[8px] bg-[var(--bg-primary)]" />)}
           </div>
@@ -1003,7 +999,7 @@ export function ReadinessClient() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Left sidebar — signal list + delivery settings */}
-        <div className="split-sidebar flex w-[280px] flex-shrink-0 flex-col overflow-hidden border-r">
+        <div className="split-sidebar flex w-[360px] flex-shrink-0 flex-col overflow-hidden border-r xl:w-[380px]">
           <Tabs
             value={activeTab}
             onValueChange={(v) => setActiveTab(v as 'signals' | 'delivery' | 'briefings')}
@@ -1013,10 +1009,10 @@ export function ReadinessClient() {
               className="split-header flex items-center border-b shrink-0"
               style={{ borderColor: 'var(--border-tertiary)' }}
             >
-              <TabsList className="split-tabbar border-b-0 px-3">
-                <TabsTrigger value="signals">
+              <TabsList className="split-tabbar w-full border-b-0 px-4">
+                <TabsTrigger value="signals" className="inline-flex items-center gap-1.5">
                   Updates
-                  <span className="ml-1.5 type-caption opacity-60">{items.length}</span>
+                  <span className="type-caption opacity-60">{items.length}</span>
                 </TabsTrigger>
                 <TabsTrigger value="delivery">Delivery</TabsTrigger>
                 <TabsTrigger value="briefings">Briefings</TabsTrigger>
@@ -1024,7 +1020,7 @@ export function ReadinessClient() {
             </div>
 
             <TabsContent value="signals" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
-              <div className="shrink-0 border-b px-[14px] py-2" style={{ borderColor: 'var(--border-tertiary)' }}>
+              <div className="shrink-0 border-b px-4 py-2.5" style={{ borderColor: 'var(--border-tertiary)' }}>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="h-8 w-full justify-between">
@@ -1068,7 +1064,7 @@ export function ReadinessClient() {
               </div>
               {/* Bulk action toolbar */}
               <div
-                className="sticky top-0 z-10 border-b px-[14px] py-[10px] shrink-0"
+                className="sticky top-0 z-10 border-b px-4 py-3 shrink-0"
                 style={{ backgroundColor: 'var(--bg-tertiary)', borderColor: 'var(--border-tertiary)' }}
               >
                 <div className="flex items-center gap-2">
@@ -1181,11 +1177,11 @@ export function ReadinessClient() {
               </div>
 
               {!hasDeliveryTargets && (
-                <div className="px-3 pt-3">
+                <div className="px-4 pt-3">
                   <button
                     type="button"
                     onClick={() => setActiveTab('delivery')}
-                    className="w-full rounded-[8px] border px-3 py-2 type-caption text-left"
+                    className="w-full rounded-[8px] border px-3.5 py-2.5 type-caption text-left"
                     style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
                   >
                     Choose where Canon should send updates before sending.
@@ -1210,16 +1206,16 @@ export function ReadinessClient() {
                     <div
                       key={item.id}
                       className={cn(
-                        'list-row flex items-center gap-2 border-b',
+                        'list-row flex items-start gap-3 border-b',
                         selectedItem?.id === item.id && 'list-row-selected'
                       )}
-                      style={{ padding: '10px 14px' }}
+                      style={{ padding: '12px 16px' }}
                     >
                       <input
                         type="checkbox"
                         checked={selectedSignalIds.has(item.id)}
                         onChange={() => toggleSignalSelection(item.id)}
-                        className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
+                        className="mt-1 h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
                         aria-label={`Select ${item.title}`}
                       />
                       <button
@@ -1228,17 +1224,19 @@ export function ReadinessClient() {
                         className="min-w-0 flex-1 text-left"
                       >
                         <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
-                        <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>
+                        <div className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>
                           {item.affected_roles.length} role{item.affected_roles.length === 1 ? '' : 's'} · {formatTimestamp(item.sent_at)}
                         </div>
                       </button>
-                      <StatusBadge variant={statusBadge[item.status]} label={statusLabels[item.status]} />
+                      <div className="mt-[1px] flex shrink-0 items-center gap-1.5">
+                        <StatusBadge variant={statusBadge[item.status]} label={statusLabels[item.status]} />
+                      </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="shrink-0"
+                            className="-mr-1 mt-0 shrink-0"
                             aria-label={`Actions for ${item.title}`}
                             disabled={rowActionId === item.id || rowActionId === 'bulk'}
                           >
@@ -1836,16 +1834,8 @@ export function ReadinessClient() {
                     </div>
                   </StepRow>
 
-                  <StepRow icon={IconArrowRight} label="4. Recommend action" tone="action">
+                  <StepRow icon={IconArrowRight} label="4. Recommend action" tone="action" divider={false}>
                     <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>{nextAction(selectedItem)}</p>
-                  </StepRow>
-
-                  <StepRow icon={selectedItem.status === 'sent' ? IconCheck : IconSend} label="5. Send or prevent" divider={false}>
-                    <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>
-                      {selectedItem.status === 'sent'
-                        ? `Sent ${formatTimestamp(selectedItem.sent_at)}.`
-                        : `${unsentCategoryItems.length} update${unsentCategoryItems.length === 1 ? '' : 's'} ready in this filter.`}
-                    </p>
                   </StepRow>
                 </div>
               </div>

@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { IntegrationSettings } from './sections/IntegrationSettings';
 import { OrganizationSettings } from './sections/OrganizationSettings';
-import { ProfileSettings } from './sections/ProfileSettings';
 import { ReadinessSettings } from './sections/ReadinessSettings';
 import { SettingsPlaceholder } from './sections/SettingsPlaceholder';
 import { isSettingsTab, SettingsSidebar, type SettingsTab } from './sections/SettingsSidebar';
@@ -33,7 +32,7 @@ export function SettingsPageClient() {
     ? 'integrations'
     : isSettingsTab(tabParam)
       ? tabParam
-      : 'profile';
+      : 'org';
   const calendarStatus = searchParams.get('calendarStatus');
   const eventCount = Number(searchParams.get('eventCount') ?? 0);
   const connectedProviderLabel = providerLabel(searchParams.get('provider') || 'service');
@@ -171,14 +170,13 @@ export function SettingsPageClient() {
       <div className="flex h-full flex-col overflow-hidden">
         <div className="app-page-header border-b">
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Settings</h1>
-          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage the roles, sources, and integrations behind team readiness</p>
+          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage the workspace, sources, and integrations behind team readiness</p>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
           <SettingsSidebar activeSetting={activeSetting} onSelect={handleSettingsTabSelect} />
 
           <div className="surface-page flex-1 overflow-y-auto px-7 py-6">
-            {activeSetting === 'profile' && <ProfileSettings />}
             {activeSetting === 'integrations' && (
               <IntegrationSettings
                 integrations={connectedIntegrations}
@@ -190,7 +188,6 @@ export function SettingsPageClient() {
               />
             )}
             {activeSetting === 'readiness' && <ReadinessSettings readinessSettings={readinessSettings} />}
-            {activeSetting === 'delete' && <SettingsPlaceholder label="Delete Account" />}
             {activeSetting === 'org' && <OrganizationSettings />}
             {activeSetting === 'apikeys' && <SettingsPlaceholder label="API Keys" />}
           </div>
