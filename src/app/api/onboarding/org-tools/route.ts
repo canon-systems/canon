@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
-import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
+import { demoTools } from '@/lib/server/demo-workspace-data';
+import { isDemoOrganization, requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,7 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { supabase, organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) return NextResponse.json({ tools: demoTools() });
 
     const { data, error } = await supabase
       .from('org_tools')

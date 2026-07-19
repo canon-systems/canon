@@ -1,19 +1,25 @@
 import type { Metadata } from 'next';
-import { CreateOrganization } from '@clerk/nextjs';
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
 
 import { AUTH_ROUTES } from '@/lib/clerk-routes';
+import { WorkspaceSetup } from './workspace-setup';
 
 export const metadata: Metadata = {
-  title: 'Create organization | Canon',
-  description: 'Create or choose the organization Canon should use as your workspace.',
+  title: 'Workspace setup | Canon',
+  description: 'Create or continue the workspace Canon should use.',
 };
 
-export default function CreateOrganizationPage() {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-[var(--auth-page-bg)] px-4 py-10">
-      <CreateOrganization
-        afterCreateOrganizationUrl={AUTH_ROUTES.afterSignIn}
-      />
-    </main>
-  );
+export default async function CreateOrganizationPage() {
+  const authState = await auth();
+
+  if (!authState.userId) {
+    redirect(AUTH_ROUTES.signIn);
+  }
+
+  if (authState.orgId) {
+    redirect(AUTH_ROUTES.afterSignIn);
+  }
+
+  return <WorkspaceSetup />;
 }

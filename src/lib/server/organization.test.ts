@@ -68,6 +68,7 @@ function clerkOrg(overrides: Partial<ClerkOrganizationDetails> = {}): ClerkOrgan
     slug: 'acme',
     ownerId: 'user_owner_123',
     role: 'owner',
+    isDemo: false,
     ...overrides,
   };
 }
@@ -95,6 +96,7 @@ describe('organization bootstrap', () => {
       slug: 'acme',
       owner_id: 'user_owner_123',
       role: 'owner',
+      is_demo: false,
     });
 
     const organizationUpsert = calls.find(

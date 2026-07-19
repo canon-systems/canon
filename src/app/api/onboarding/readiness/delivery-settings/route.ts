@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createLogger } from '@/lib/server/logging';
-import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
+import { demoDeliverySettings } from '@/lib/server/demo-workspace-data';
+import { isDemoOrganization, requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import {
   validDeliveryTargets,
   validSlackChannelIds,
@@ -25,6 +26,7 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { supabase, organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) return NextResponse.json({ settings: demoDeliverySettings() });
 
     const { data: settings, error } = await supabase
       .from('readiness_delivery_settings')

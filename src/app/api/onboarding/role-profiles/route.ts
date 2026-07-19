@@ -5,6 +5,8 @@ import { createLogger } from '@/lib/server/logging';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
 import { normalizeRampTargets } from '@/lib/onboarding/milestone-ramp';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
+import { demoRoleProfiles } from '@/lib/server/demo-workspace-data';
+import { isDemoOrganization } from '@/lib/server/organization';
 import type { RoleProfile } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
@@ -125,6 +127,10 @@ export async function GET(request: NextRequest) {
     const roleParam = roleName(request.nextUrl.searchParams.get('role'));
     if (roleParam && !validRoleName(roleParam)) return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
     const includeArchived = request.nextUrl.searchParams.get('include_archived') === 'true';
+    if (isDemoOrganization(organization)) {
+      const profiles = demoRoleProfiles().filter((profile) => !roleParam || profile.role === roleParam);
+      return NextResponse.json({ profiles });
+    }
 
     let query = supabase
       .from('role_profiles')

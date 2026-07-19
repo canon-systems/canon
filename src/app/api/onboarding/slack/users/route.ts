@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { listSlackUsersForOrganization } from '@/lib/server/integrations/slack-users';
-import { requireWorkspace } from '@/lib/server/organization';
+import { isDemoOrganization, requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +11,23 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { organization } = await requireWorkspace(user);
+    if (isDemoOrganization(organization)) {
+      return NextResponse.json({
+        users: [
+          { id: 'UDEMO_MAYA', name: 'Maya Chen', email: 'maya.chen@novara.cloud' },
+          { id: 'UDEMO_JORDAN', name: 'Jordan Brooks', email: 'jordan.brooks@novara.cloud' },
+          { id: 'UDEMO_PRIYA', name: 'Priya Raman', email: 'priya.raman@novara.cloud' },
+          { id: 'UDEMO_ELENA', name: 'Elena Torres', email: 'elena.torres@novara.cloud' },
+          { id: 'UDEMO_SAMIRA', name: 'Samira Patel', email: 'samira.patel@novara.cloud' },
+          { id: 'UDEMO_MARCUS', name: 'Marcus Lee', email: 'marcus.lee@novara.cloud' },
+          { id: 'UDEMO_OLIVIA', name: 'Olivia Grant', email: 'olivia.grant@novara.cloud' },
+          { id: 'UDEMO_DANIEL', name: 'Daniel Kim', email: 'daniel.kim@novara.cloud' },
+        ],
+        reconnect_required: false,
+        missing_scopes: [],
+        provided_scopes: ['users:read', 'users:read.email'],
+      });
+    }
     const result = await listSlackUsersForOrganization(organization.id);
     return NextResponse.json({
       users: result.users,
