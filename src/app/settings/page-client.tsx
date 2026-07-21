@@ -28,7 +28,8 @@ export function SettingsPageClient() {
   const tabParam = searchParams.get('tab');
   const successParam = searchParams.get('success');
   const errorParam = searchParams.get('error');
-  const activeSetting: SettingsTab = successParam === 'true' || Boolean(errorParam)
+  const integrationPrompt = searchParams.get('connect') === 'communication' ? 'communication' as const : null;
+  const activeSetting: SettingsTab = successParam === 'true' || Boolean(errorParam) || integrationPrompt !== null
     ? 'integrations'
     : isSettingsTab(tabParam)
       ? tabParam
@@ -79,8 +80,11 @@ export function SettingsPageClient() {
 
     if (errorParam) {
       router.replace(`/settings?tab=integrations`);
+      return;
     }
-  }, [errorParam, router, successParam]);
+
+    if (integrationPrompt) router.replace('/settings?tab=integrations');
+  }, [errorParam, integrationPrompt, router, successParam]);
 
   function formatDate(dateString: string | null) {
     if (!dateString) return 'Unknown';
@@ -185,6 +189,7 @@ export function SettingsPageClient() {
                 connectingProvider={connectingProvider}
                 success={success}
                 error={error}
+                prompt={integrationPrompt}
               />
             )}
             {activeSetting === 'readiness' && <ReadinessSettings readinessSettings={readinessSettings} />}

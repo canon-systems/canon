@@ -1,6 +1,24 @@
 import { nangoProxyGet } from '@/lib/server/integrations/nango';
 
 export type CalendarProvider = 'google_calendar' | 'outlook';
+export type CalendarSourceType = 'primary' | 'calendar' | 'group';
+
+export type CalendarSourceTarget = {
+  externalId: string;
+  type: CalendarSourceType;
+};
+
+export type DiscoveredCalendarSource = CalendarSourceTarget & {
+  key: string;
+  displayName: string;
+  isDefault: boolean;
+  metadata: Record<string, unknown>;
+};
+
+export type CalendarDiscoveryResult = {
+  sources: DiscoveredCalendarSource[];
+  warnings: string[];
+};
 
 type RawRecord = Record<string, unknown>;
 type ProxyQuery = Record<string, string | number | boolean | null | undefined>;
@@ -26,6 +44,14 @@ export type CalendarFetchResult = {
 };
 
 const MAX_CALENDAR_PAGES = 25;
+const OUTLOOK_GROUP_PERMISSION_WARNING =
+  'Microsoft 365 group calendars need additional Microsoft access. Reconnect Outlook after a Microsoft 365 administrator grants Group.Read.All.';
+const OUTLOOK_WORK_ACCOUNT_WARNING =
+  'Microsoft 365 group calendars require a work or school Outlook account. Reconnect Outlook with the same Microsoft 365 account your team uses for Microsoft Teams.';
+
+export function calendarSourceKey(source: CalendarSourceTarget) {
+  return `${source.type}:${source.externalId}`;
+}
 
 function isRecord(value: unknown): value is RawRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -156,10 +182,10 @@ function eventsFromResponse(response: unknown) {
   return [];
 }
 
-function nextGooglePage(response: unknown, currentQuery: ProxyQuery) {
+function nextGooglePage(response: unknown, currentEndpoint: string, currentQuery: ProxyQuery) {
   if (!isRecord(response)) return null;
   const pageToken = stringField(response, ['nextPageToken']);
-  return pageToken ? { endpoint: '/calendar/v3/calendars/primary/events', query: { ...currentQuery, pageToken } } : null;
+  return pageToken ? { endpoint: currentEndpoint, query: { ...currentQuery, pageToken } } : null;
 }
 
 function nextOutlookPage(response: unknown) {
@@ -174,15 +200,243 @@ function nextOutlookPage(response: unknown) {
   };
 }
 
+function calendarEventsEndpoint(provider: CalendarProvider, source?: CalendarSourceTarget) {
+  if (provider === 'google_calendar') {
+    const calendarId = source?.externalId ?? 'primary';
+    return `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+  }
+
+  if (!source) return '/v1.0/me/calendarView';
+  if (source.type === 'group') {
+    return `/v1.0/groups/${encodeURIComponent(source.externalId)}/calendarView`;
+  }
+  return `/v1.0/me/calendars/${encodeURIComponent(source.externalId)}/calendarView`;
+}
+
+function discoveredSource(params: {
+  externalId: string | null;
+  type: CalendarSourceType;
+  displayName: string | null;
+  isDefault?: boolean;
+  metadata?: Record<string, unknown>;
+}): DiscoveredCalendarSource | null {
+  if (!params.externalId) return null;
+  const source: DiscoveredCalendarSource = {
+    externalId: params.externalId,
+    type: params.type,
+    displayName: params.displayName ?? 'Unnamed calendar',
+    isDefault: params.isDefault === true,
+    metadata: params.metadata ?? {},
+    key: '',
+  };
+  source.key = calendarSourceKey(source);
+  return source;
+}
+
+function calendarSourcesFromGoogle(response: unknown) {
+  return eventsFromResponse(response).flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const isDefault = entry.primary === true;
+    const source = discoveredSource({
+      externalId: stringField(entry, ['id']),
+      type: isDefault ? 'primary' : 'calendar',
+      displayName: stringField(entry, ['summaryOverride', 'summary']),
+      isDefault,
+      metadata: {
+        access_role: stringField(entry, ['accessRole']),
+        background_color: stringField(entry, ['backgroundColor']),
+        time_zone: stringField(entry, ['timeZone']),
+      },
+    });
+    return source ? [source] : [];
+  });
+}
+
+function calendarSourcesFromOutlook(response: unknown) {
+  return eventsFromResponse(response).flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const isDefault = entry.isDefaultCalendar === true;
+    const owner = isRecord(entry.owner) ? entry.owner : {};
+    const source = discoveredSource({
+      externalId: stringField(entry, ['id']),
+      type: isDefault ? 'primary' : 'calendar',
+      displayName: stringField(entry, ['name']),
+      isDefault,
+      metadata: {
+        can_edit: entry.canEdit === true,
+        can_share: entry.canShare === true,
+        owner_name: stringField(owner, ['name']),
+        owner_address: stringField(owner, ['address']),
+      },
+    });
+    return source ? [source] : [];
+  });
+}
+
+function calendarSourcesFromOutlookGroups(response: unknown) {
+  return eventsFromResponse(response).flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const groupTypes = Array.isArray(entry.groupTypes)
+      ? entry.groupTypes.filter((value): value is string => typeof value === 'string')
+      : [];
+    if (!groupTypes.some((value) => value.toLowerCase() === 'unified')) return [];
+
+    const source = discoveredSource({
+      externalId: stringField(entry, ['id']),
+      type: 'group',
+      displayName: stringField(entry, ['displayName', 'mail']),
+      metadata: {
+        mail: stringField(entry, ['mail']),
+        group_types: groupTypes,
+      },
+    });
+    return source ? [source] : [];
+  });
+}
+
+function hasLimitedOutlookGroupDetails(response: unknown) {
+  return eventsFromResponse(response).some((entry) => {
+    if (!isRecord(entry) || !stringField(entry, ['id'])) return false;
+    const objectType = stringField(entry, ['@odata.type']);
+    if (objectType && !objectType.toLowerCase().endsWith('.group')) return false;
+
+    return !stringField(entry, ['displayName', 'mail']) && !Array.isArray(entry.groupTypes);
+  });
+}
+
+function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function isPersonalMicrosoftAccount(connectionId: string) {
+  try {
+    await nangoProxyGet({
+      provider: 'outlook',
+      connectionId,
+      endpoint: '/v1.0/organization',
+      query: { '$select': 'id', '$top': 1 },
+    });
+    return false;
+  } catch (error) {
+    return /not supported for MSA accounts/i.test(errorText(error));
+  }
+}
+
+async function discoverGoogleCalendarSources(connectionId: string) {
+  const sources: DiscoveredCalendarSource[] = [];
+  const endpoint = '/calendar/v3/users/me/calendarList';
+  let query: ProxyQuery = { maxResults: 250, showHidden: false };
+
+  for (let page = 0; page < MAX_CALENDAR_PAGES; page++) {
+    const response = await nangoProxyGet({
+      provider: 'google_calendar',
+      connectionId,
+      endpoint,
+      query,
+    });
+    sources.push(...calendarSourcesFromGoogle(response));
+    const nextPage = nextGooglePage(response, endpoint, query);
+    if (!nextPage) break;
+    query = nextPage.query;
+  }
+
+  return sources;
+}
+
+async function discoverOutlookPages(params: {
+  connectionId: string;
+  endpoint: string;
+  query: ProxyQuery;
+  headers?: Record<string, string>;
+  map: (response: unknown) => DiscoveredCalendarSource[];
+}) {
+  const sources: DiscoveredCalendarSource[] = [];
+  let endpoint = params.endpoint;
+  let query = params.query;
+
+  for (let page = 0; page < MAX_CALENDAR_PAGES; page++) {
+    const response = await nangoProxyGet({
+      provider: 'outlook',
+      connectionId: params.connectionId,
+      endpoint,
+      query,
+      headers: params.headers,
+    });
+    sources.push(...params.map(response));
+    const nextPage = nextOutlookPage(response);
+    if (!nextPage) break;
+    endpoint = nextPage.endpoint;
+    query = nextPage.query;
+  }
+
+  return sources;
+}
+
+async function discoverOutlookCalendarSources(connectionId: string): Promise<CalendarDiscoveryResult> {
+  const sources = await discoverOutlookPages({
+    connectionId,
+    endpoint: '/v1.0/me/calendars',
+    query: {
+      '$select': 'id,name,isDefaultCalendar,canEdit,canShare,owner',
+      '$top': 100,
+    },
+    map: calendarSourcesFromOutlook,
+  });
+  const warnings: string[] = [];
+  let limitedGroupDetails = false;
+
+  try {
+    sources.push(...await discoverOutlookPages({
+      connectionId,
+      endpoint: '/v1.0/me/memberOf/microsoft.graph.group',
+      query: {
+        '$select': 'id,displayName,mail,groupTypes',
+        '$count': true,
+        '$top': 100,
+      },
+      headers: { ConsistencyLevel: 'eventual' },
+      map: (response) => {
+        limitedGroupDetails ||= hasLimitedOutlookGroupDetails(response);
+        return calendarSourcesFromOutlookGroups(response);
+      },
+    }));
+  } catch {
+    warnings.push(await isPersonalMicrosoftAccount(connectionId)
+      ? OUTLOOK_WORK_ACCOUNT_WARNING
+      : OUTLOOK_GROUP_PERMISSION_WARNING);
+  }
+  if (limitedGroupDetails) warnings.push(OUTLOOK_GROUP_PERMISSION_WARNING);
+
+  return { sources, warnings: Array.from(new Set(warnings)) };
+}
+
+export async function discoverCalendarSources(params: {
+  provider: CalendarProvider;
+  connectionId: string;
+}): Promise<CalendarDiscoveryResult> {
+  const result = params.provider === 'google_calendar'
+    ? { sources: await discoverGoogleCalendarSources(params.connectionId), warnings: [] }
+    : await discoverOutlookCalendarSources(params.connectionId);
+  const sourcesByKey = new Map(result.sources.map((source) => [source.key, source]));
+
+  return {
+    sources: Array.from(sourcesByKey.values()).sort((left, right) => {
+      if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+      if (left.type !== right.type) return left.type.localeCompare(right.type);
+      return left.displayName.localeCompare(right.displayName, undefined, { sensitivity: 'base' });
+    }),
+    warnings: result.warnings,
+  };
+}
+
 export async function fetchUpcomingCalendarEvents(params: {
   provider: CalendarProvider;
   connectionId: string;
   from: string;
   to: string;
+  source?: CalendarSourceTarget;
 }): Promise<CalendarFetchResult> {
-  let endpoint = params.provider === 'google_calendar'
-    ? '/calendar/v3/calendars/primary/events'
-    : '/v1.0/me/calendarView';
+  let endpoint = calendarEventsEndpoint(params.provider, params.source);
   let query: ProxyQuery = params.provider === 'google_calendar'
     ? {
         timeMin: params.from,
@@ -215,7 +469,7 @@ export async function fetchUpcomingCalendarEvents(params: {
     rawEvents.push(...eventsFromResponse(response));
 
     const nextPage = params.provider === 'google_calendar'
-      ? nextGooglePage(response, query)
+      ? nextGooglePage(response, endpoint, query)
       : nextOutlookPage(response);
     hasMore = Boolean(nextPage);
     if (!nextPage) break;

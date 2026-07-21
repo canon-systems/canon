@@ -41,6 +41,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { cn } from '@/components/ui/utils';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import type { KnowledgeSource, ReadinessBrief, ReadinessCategory, ReadinessItem, ReadinessStatus } from '@/types/onboarding';
+import {
+  CalendarSourceManagerDialog,
+  type CalendarSourceProvider,
+} from './CalendarSourceManagerDialog';
 
 const categories = [
   { id: 'product_change' as const, label: 'Product' },
@@ -311,6 +315,24 @@ function StepRow({
   );
 }
 
+function CommunicationToolAlert({ className }: { className?: string }) {
+  return (
+    <Alert className={className}>
+      <IconSend size={15} />
+      <AlertTitle>No Communication Tool Connected</AlertTitle>
+      <AlertDescription>
+        <p>Connect a communication tool to choose where Canon sends readiness updates and briefings.</p>
+        <Button asChild variant="secondary" size="sm" className="mt-3">
+          <Link href="/settings?tab=integrations&connect=communication">
+            Connect a Tool
+            <IconArrowRight size={14} />
+          </Link>
+        </Button>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 export function ReadinessClient() {
   const [brief, setBrief] = useState<ReadinessBrief | null>(null);
   const [hasKnowledgeSources, setHasKnowledgeSources] = useState(false);
@@ -338,6 +360,7 @@ export function ReadinessClient() {
   const [meetingBriefings, setMeetingBriefings] = useState<MeetingBriefingsResponse | null>(null);
   const [loadingMeetingBriefings, setLoadingMeetingBriefings] = useState(true);
   const [refreshingCalendar, setRefreshingCalendar] = useState(false);
+  const [calendarSourceProvider, setCalendarSourceProvider] = useState<CalendarSourceProvider | null>(null);
   const [savingDeliverySettings, setSavingDeliverySettings] = useState(false);
   const [selectedDeliveryProvider, setSelectedDeliveryProvider] = useState<DeliveryProvider | null>(null);
 
@@ -611,9 +634,6 @@ export function ReadinessClient() {
     [knownDeliveryTargetOptions]
   );
   const hasDeliveryTargets = deliveryTargets.length > 0;
-  const meetingPrepReady = activeProviderConnected && Boolean(meetingBriefings?.calendar.connected);
-  const deliverySettingsReady = (!weeklyDigestEnabled || hasDeliveryTargets)
-    && (!meetingPrepEnabled || meetingPrepReady);
   const allCategoriesSelected = activeCategories.length === categories.length;
   const filterLabel = selectedCategoryLabel(activeCategories);
   const selectedSignalCount = selectedSignalIds.size;
@@ -885,6 +905,18 @@ export function ReadinessClient() {
     } finally {
       setRefreshingCalendar(false);
     }
+  }
+
+  function handleCalendarSourcesSaved(result: {
+    provider: CalendarSourceProvider;
+    selectedCount: number;
+    warnings: string[];
+  }) {
+    const message = result.selectedCount === 0
+      ? `${result.provider.label} calendar syncing paused`
+      : `${result.selectedCount} ${result.selectedCount === 1 ? 'calendar' : 'calendars'} selected for ${result.provider.label}`;
+    toast.success(message, result.warnings.length > 0 ? { description: result.warnings.join(' ') } : undefined);
+    void loadMeetingBriefings();
   }
 
   function toggleSignalSelection(signalId: string) {
@@ -1311,11 +1343,7 @@ export function ReadinessClient() {
                 ))}
               </div>
               {!activeDeliveryProvider && (
-                <Alert className="mt-2">
-                  <IconSend size={15} />
-                  <AlertTitle>No Chat Tool Connected</AlertTitle>
-                  <AlertDescription>Connect Slack in Settings.</AlertDescription>
-                </Alert>
+                <CommunicationToolAlert className="mt-2" />
               )}
             </TabsContent>
 
@@ -1362,13 +1390,7 @@ export function ReadinessClient() {
             <>
               <div className="detail-page-header border-b px-7 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <StatusBadge
-                      variant={meetingBriefings?.calendar.connected ? 'delivered' : 'pending'}
-                      label={meetingBriefings?.calendar.connected ? 'Calendar Connected' : 'Calendar Needed'}
-                    />
-                    <h2 className="type-section-title text-[var(--text-primary)]">Meeting Briefings</h2>
-                  </div>
+                  <h2 className="type-section-title text-[var(--text-primary)]">Meeting Briefings</h2>
                   {meetingBriefings?.permissions.canSync && (
                     <Button
                       variant="outline"
@@ -1420,7 +1442,7 @@ export function ReadinessClient() {
 
                     <section className="border-b border-[var(--border-tertiary)] px-7 py-5" aria-labelledby="calendar-health-heading">
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <h3 id="calendar-health-heading" className="type-panel-title text-[var(--text-primary)]">Calendar</h3>
+                        <h3 id="calendar-health-heading" className="type-panel-title text-[var(--text-primary)]">Calendar Sources</h3>
                         <span className="type-caption text-[var(--text-tertiary)]">
                           {meetingBriefings.calendar.lastSyncedAt
                             ? `Last refreshed ${formatTimestamp(meetingBriefings.calendar.lastSyncedAt)}`
@@ -1450,7 +1472,22 @@ export function ReadinessClient() {
                                         : 'Waiting for first refresh'}
                                   </div>
                                 </div>
-                                <StatusBadge variant={status.variant} label={status.label} />
+                                <div className="flex shrink-0 items-center gap-2">
+                                  <StatusBadge variant={status.variant} label={status.label} />
+                                  {provider.connected && (
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() => setCalendarSourceProvider({
+                                        provider: provider.provider,
+                                        label: provider.label,
+                                      })}
+                                    >
+                                      <IconCalendar size={14} />
+                                      Calendars
+                                    </Button>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
@@ -1538,12 +1575,7 @@ export function ReadinessClient() {
             <>
               <div className="detail-page-header border-b px-7 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <StatusBadge variant={deliverySettingsReady ? 'delivered' : 'pending'} label={deliverySettingsReady ? 'Ready' : 'Needs Setup'} />
-                    <div className="min-w-0">
-                      <h2 className="type-section-title text-[var(--text-primary)]">Delivery Settings</h2>
-                    </div>
-                  </div>
+                  <h2 className="type-section-title text-[var(--text-primary)]">Delivery Settings</h2>
                 </div>
               </div>
 
@@ -1591,11 +1623,7 @@ export function ReadinessClient() {
                     </div>
                     <div className="min-w-0 space-y-2">
                       {!activeDeliveryProvider ? (
-                        <Alert className="py-2">
-                          <IconSend size={14} />
-                          <AlertTitle>No Chat Tool Connected</AlertTitle>
-                          <AlertDescription>Connect Slack in Settings.</AlertDescription>
-                        </Alert>
+                        <CommunicationToolAlert className="py-2" />
                       ) : !activeProviderConnected ? (
                         <Alert className="py-2">
                           <IconSend size={14} />
@@ -1759,14 +1787,8 @@ export function ReadinessClient() {
           ) : selectedItem ? (
             <>
               <div className="detail-page-header px-8 py-5 border-b">
-                <div className="mb-3 flex items-center gap-2 flex-wrap">
-                  <StatusBadge
-                    variant={statusBadge[selectedItem.status]}
-                    label={statusLabels[selectedItem.status]}
-                  />
-                  <span className="type-body" style={{ color: 'var(--text-tertiary)' }}>
-                    {formatTimestamp(selectedItem.sent_at)}
-                  </span>
+                <div className="mb-3 type-body text-[var(--text-tertiary)]">
+                  {formatTimestamp(selectedItem.sent_at)}
                 </div>
                 <h2 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>
                   {selectedItem.title}
@@ -1926,6 +1948,14 @@ export function ReadinessClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CalendarSourceManagerDialog
+        provider={calendarSourceProvider}
+        onOpenChange={(open) => {
+          if (!open) setCalendarSourceProvider(null);
+        }}
+        onSaved={handleCalendarSourcesSaved}
+      />
     </div>
   );
 }

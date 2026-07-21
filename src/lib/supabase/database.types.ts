@@ -62,6 +62,62 @@ export type Database = {
           },
         ]
       }
+      calendar_sources: {
+        Row: {
+          calendar_type: string
+          created_at: string
+          display_name: string
+          enabled: boolean
+          external_id: string
+          id: string
+          is_default: boolean
+          last_error: string | null
+          last_synced_at: string | null
+          metadata: Json
+          organization_id: string
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          calendar_type: string
+          created_at?: string
+          display_name: string
+          enabled?: boolean
+          external_id: string
+          id?: string
+          is_default?: boolean
+          last_error?: string | null
+          last_synced_at?: string | null
+          metadata?: Json
+          organization_id: string
+          provider: string
+          updated_at?: string
+        }
+        Update: {
+          calendar_type?: string
+          created_at?: string
+          display_name?: string
+          enabled?: boolean
+          external_id?: string
+          id?: string
+          is_default?: boolean
+          last_error?: string | null
+          last_synced_at?: string | null
+          metadata?: Json
+          organization_id?: string
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_sources_connection_fkey"
+            columns: ["organization_id", "provider"]
+            isOneToOne: false
+            referencedRelation: "oauth_connections"
+            referencedColumns: ["organization_id", "provider"]
+          },
+        ]
+      }
       knowledge_chunks: {
         Row: {
           content: string
@@ -160,6 +216,7 @@ export type Database = {
       meeting_events: {
         Row: {
           attendees: string[]
+          calendar_source_id: string | null
           connection_id: string | null
           created_at: string
           customer_domain: string | null
@@ -180,6 +237,7 @@ export type Database = {
         }
         Insert: {
           attendees?: string[]
+          calendar_source_id?: string | null
           connection_id?: string | null
           created_at?: string
           customer_domain?: string | null
@@ -200,6 +258,7 @@ export type Database = {
         }
         Update: {
           attendees?: string[]
+          calendar_source_id?: string | null
           connection_id?: string | null
           created_at?: string
           customer_domain?: string | null
@@ -219,6 +278,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "meeting_events_calendar_source_id_fkey"
+            columns: ["calendar_source_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_sources"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "meeting_events_organization_id_fkey"
             columns: ["organization_id"]

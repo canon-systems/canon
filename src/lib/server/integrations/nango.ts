@@ -44,6 +44,7 @@ type NangoProviderConfig = {
   supportsWebhooks: boolean;
   supportsIncrementalSync: boolean;
   supportsConnectionConfigDefaults?: boolean;
+  oauthScopesOverride?: string;
 };
 
 type NangoRequestParams = {
@@ -57,6 +58,19 @@ type NangoRequestParams = {
 
 const NANGO_API_BASE_URL = process.env.NANGO_API_BASE_URL || 'https://api.nango.dev';
 const NANGO_REQUEST_TIMEOUT_MS = 15_000;
+const OUTLOOK_OAUTH_SCOPES = [
+  'Mail.Read',
+  'Mail.Send',
+  'Contacts.Read',
+  'Mail.ReadWrite',
+  'Calendars.Read',
+  'Calendars.ReadWrite',
+  'MailboxSettings.Read',
+  'offline_access',
+  'openid',
+  'User.Read',
+  'Group.Read.All',
+].join(',');
 
 const NANGO_PROVIDER_CONFIG: Record<NangoProvider, NangoProviderConfig> = {
   granola: {
@@ -119,6 +133,7 @@ const NANGO_PROVIDER_CONFIG: Record<NangoProvider, NangoProviderConfig> = {
     sourceType: 'calendar',
     supportsWebhooks: true,
     supportsIncrementalSync: true,
+    oauthScopesOverride: OUTLOOK_OAUTH_SCOPES,
   },
 };
 
@@ -243,12 +258,17 @@ export async function createNangoConnectSession(params: {
     allowed_integrations: [integration.integrationId],
   };
 
+  const connectionConfig: Record<string, string> = {};
   if (params.webhookUrl && integration.supportsConnectionConfigDefaults) {
+    connectionConfig.webhook_url = params.webhookUrl;
+  }
+  if (integration.oauthScopesOverride) {
+    connectionConfig.oauth_scopes_override = integration.oauthScopesOverride;
+  }
+  if (Object.keys(connectionConfig).length > 0) {
     body.integrations_config_defaults = {
       [integration.integrationId]: {
-        connection_config: {
-          webhook_url: params.webhookUrl,
-        },
+        connection_config: connectionConfig,
       },
     };
   }

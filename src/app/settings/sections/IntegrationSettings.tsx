@@ -28,7 +28,10 @@ type IntegrationSettingsProps = {
   connectingProvider: string | null;
   success: string;
   error: string;
+  prompt?: 'communication' | null;
 };
+
+const communicationProviders = new Set(['slack', 'teams']);
 
 export function IntegrationSettings({
   integrations,
@@ -37,23 +40,32 @@ export function IntegrationSettings({
   connectingProvider,
   success,
   error,
+  prompt = null,
 }: IntegrationSettingsProps) {
-  const [addIntegrationOpen, setAddIntegrationOpen] = useState(false);
+  const [addIntegrationOpen, setAddIntegrationOpen] = useState(prompt !== null);
+  const [activePrompt, setActivePrompt] = useState<'communication' | null>(prompt);
   const [integrationSearch, setIntegrationSearch] = useState('');
+  const promptedAvailableIntegrations = activePrompt === 'communication'
+    ? availableIntegrations.filter((integration) => communicationProviders.has(integration.provider))
+    : availableIntegrations;
   const normalizedSearch = integrationSearch.trim().toLowerCase();
   const filteredAvailableIntegrations = normalizedSearch
-    ? availableIntegrations.filter((integration) =>
+    ? promptedAvailableIntegrations.filter((integration) =>
         `${integration.name} ${integration.description}`.toLowerCase().includes(normalizedSearch)
       )
-    : availableIntegrations;
+    : promptedAvailableIntegrations;
 
   function handleAddIntegrationOpenChange(open: boolean) {
     setAddIntegrationOpen(open);
-    if (!open) setIntegrationSearch('');
+    if (!open) {
+      setActivePrompt(null);
+      setIntegrationSearch('');
+    }
   }
 
   function connectAvailableIntegration(integration: IntegrationCard) {
     setAddIntegrationOpen(false);
+    setActivePrompt(null);
     setIntegrationSearch('');
     window.setTimeout(() => {
       void integration.action();
@@ -80,7 +92,15 @@ export function IntegrationSettings({
             Manage the places Canon can use to keep readiness work current.
           </p>
         </div>
-        <Button className="shrink-0" variant="secondary" onClick={() => setAddIntegrationOpen(true)} disabled={loading}>
+        <Button
+          className="shrink-0"
+          variant="secondary"
+          onClick={() => {
+            setActivePrompt(null);
+            setAddIntegrationOpen(true);
+          }}
+          disabled={loading}
+        >
           <IconPlus size={14} />
           Add Integration
         </Button>
@@ -136,13 +156,19 @@ export function IntegrationSettings({
       <Dialog open={addIntegrationOpen} onOpenChange={handleAddIntegrationOpenChange}>
         <DialogContent className="max-w-lg border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle>Add Integration</DialogTitle>
+            <DialogTitle>{activePrompt === 'communication' ? 'Connect a Communication Tool' : 'Add Integration'}</DialogTitle>
             <DialogDescription>
-              Connect another app Canon can use for readiness work.
+              {activePrompt === 'communication'
+                ? 'Choose where Canon should deliver readiness updates and briefings.'
+                : 'Connect another app Canon can use for readiness work.'}
             </DialogDescription>
           </DialogHeader>
 
-          {availableIntegrations.length > 0 ? (
+          {loading ? (
+            <div className="flex min-h-32 items-center justify-center gap-2 type-body text-[var(--text-tertiary)]">
+              <IconLoader2 size={14} className="animate-spin" /> Loading integrations...
+            </div>
+          ) : promptedAvailableIntegrations.length > 0 ? (
             <div className="space-y-2">
               <div className="relative">
                 <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
@@ -190,9 +216,13 @@ export function IntegrationSettings({
             </div>
           ) : (
             <div className="rounded-[10px] border px-4 py-4" style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-secondary)' }}>
-              <div className="type-panel-title" style={{ color: 'var(--text-primary)' }}>All available apps are connected</div>
+              <div className="type-panel-title" style={{ color: 'var(--text-primary)' }}>
+                {activePrompt === 'communication' ? 'No communication tools are available' : 'All available apps are connected'}
+              </div>
               <p className="type-body mt-1" style={{ color: 'var(--text-secondary)' }}>
-                New integrations will appear here when they are ready to connect.
+                {activePrompt === 'communication'
+                  ? 'Ask a workspace administrator which communication tool your team should use.'
+                  : 'New integrations will appear here when they are ready to connect.'}
               </p>
             </div>
           )}
